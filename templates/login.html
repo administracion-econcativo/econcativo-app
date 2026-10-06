@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="es" class="h-full bg-[#00132B]">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Iniciar Sesión | ECONCATIVO S.A.S.</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+        body { 
+            font-family: 'Plus Jakarta Sans', sans-serif; 
+            background-color: #00132B;
+        }
+        .brand-amber { color: #D48806; }
+        .bg-brand-amber { background-color: #D48806; }
+        .bg-brand-amber:hover { background-color: #B37000; }
+        .border-brand-amber { border-color: #D48806; }
+    </style>
+</head>
+<body class="h-full flex items-center justify-center p-4 bg-[#00132B] bg-[radial-gradient(ellipse_80%_80%_at_50%_-20%,rgba(212,136,6,0.18),rgba(0,19,43,1))]">
+
+    <div class="w-full max-w-md space-y-6">
+        
+        <!-- Header Brand Logo & Title -->
+        <div class="text-center space-y-3">
+            <div class="inline-flex items-center justify-center bg-white p-3 rounded-2xl shadow-2xl border border-amber-500/30 shadow-amber-500/10 mb-1 transform hover:scale-105 transition-transform duration-300">
+                <img src="/static/logo.png" alt="ECONCATIVO Logo" class="h-12 w-auto object-contain">
+            </div>
+            <div>
+                <h1 class="text-2xl font-black tracking-wider text-white">
+                    ECONCATIVO <span class="brand-amber">S.A.S.</span>
+                </h1>
+                <p class="text-xs text-amber-200/80 font-semibold tracking-wide uppercase mt-0.5">
+                    Transporte & Maquinarias
+                </p>
+                <p class="text-[11px] text-slate-400 font-medium mt-1">
+                    Sistema Integral de Gestión Operativa, Logística & Tesorería
+                </p>
+            </div>
+        </div>
+
+        <!-- Login Card -->
+        <div class="bg-[#002B5C]/90 backdrop-blur-2xl border border-[#004080]/60 rounded-3xl p-8 shadow-2xl space-y-6">
+            
+            <div class="border-b border-[#004080]/60 pb-4 flex items-center justify-between">
+                <div>
+                    <h2 class="text-base font-bold text-white flex items-center gap-2">
+                        <i class="fa-solid fa-shield-halved brand-amber"></i> Acceso al Sistema
+                    </h2>
+                    <p class="text-xs text-slate-300 mt-0.5">Ingrese sus credenciales registradas</p>
+                </div>
+                <span class="bg-amber-500/15 text-amber-300 border border-amber-400/30 text-[10px] font-extrabold px-2 py-0.5 rounded-md uppercase">
+                    Seguro
+                </span>
+            </div>
+
+            <!-- Error Notification Alert -->
+            <div id="error-alert" class="hidden p-3.5 rounded-xl bg-rose-500/15 border border-rose-500/40 text-rose-200 text-xs font-semibold flex items-center gap-2.5">
+                <i class="fa-solid fa-circle-exclamation text-rose-400 text-sm"></i>
+                <span id="error-message">Usuario o contraseña incorrectos.</span>
+            </div>
+
+            <form id="login-form" onsubmit="handleLogin(event)" class="space-y-4">
+                
+                <!-- Username Field -->
+                <div>
+                    <label class="block text-xs font-bold text-slate-200 mb-1.5 uppercase tracking-wider">Usuario / Nombre</label>
+                    <div class="relative">
+                        <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                            <i class="fa-solid fa-user text-xs"></i>
+                        </div>
+                        <input type="text" id="username" required autocomplete="username"
+                            placeholder="Ej: Ailen Avalle" 
+                            class="w-full pl-10 pr-4 py-3 bg-[#001836] border border-[#003870] rounded-xl text-xs text-white placeholder-slate-400 outline-none focus:ring-2 focus:ring-[#D48806] focus:border-[#D48806] transition-all font-semibold">
+                    </div>
+                </div>
+
+                <!-- Password Field -->
+                <div>
+                    <label class="block text-xs font-bold text-slate-200 mb-1.5 uppercase tracking-wider">Contraseña</label>
+                    <div class="relative">
+                        <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                            <i class="fa-solid fa-lock text-xs"></i>
+                        </div>
+                        <input type="password" id="password" required autocomplete="current-password"
+                            placeholder="••••••••" 
+                            class="w-full pl-10 pr-10 py-3 bg-[#001836] border border-[#003870] rounded-xl text-xs text-white placeholder-slate-400 outline-none focus:ring-2 focus:ring-[#D48806] focus:border-[#D48806] transition-all font-semibold">
+                        <button type="button" onclick="togglePasswordVisibility()" class="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-slate-200 transition-colors">
+                            <i id="eye-icon" class="fa-solid fa-eye text-xs"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Submit Button -->
+                <button type="submit" id="btn-submit" 
+                    class="w-full py-3.5 px-4 bg-brand-amber text-white font-bold text-xs rounded-xl shadow-lg shadow-amber-950/50 hover:shadow-amber-900/70 transition-all flex items-center justify-center gap-2 cursor-pointer mt-3 active:scale-[0.99]">
+                    <span>Iniciar Sesión</span>
+                    <i class="fa-solid fa-arrow-right text-xs"></i>
+                </button>
+
+            </form>
+        </div>
+
+        <!-- Footer -->
+        <p class="text-center text-[11px] text-slate-400 font-medium">
+            &copy; 2026 <span class="text-white font-bold">ECONCATIVO S.A.S.</span> &bull; Transporte & Maquinarias
+        </p>
+
+    </div>
+
+    <script>
+        function togglePasswordVisibility() {
+            const pwdInput = document.getElementById('password');
+            const eyeIcon = document.getElementById('eye-icon');
+            if (pwdInput.type === 'password') {
+                pwdInput.type = 'text';
+                eyeIcon.classList.remove('fa-eye');
+                eyeIcon.classList.add('fa-eye-slash');
+            } else {
+                pwdInput.type = 'password';
+                eyeIcon.classList.remove('fa-eye-slash');
+                eyeIcon.classList.add('fa-eye');
+            }
+        }
+
+        window.addEventListener('DOMContentLoaded', () => {
+            const urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.get('expired')) {
+                const alertBox = document.getElementById('error-alert');
+                const errorMsg = document.getElementById('error-message');
+                if (alertBox && errorMsg) {
+                    alertBox.classList.remove('hidden', 'bg-rose-500/15', 'border-rose-500/40', 'text-rose-200');
+                    alertBox.classList.add('bg-amber-500/15', 'border-amber-500/40', 'text-amber-200');
+                    alertBox.querySelector('i')?.classList.replace('text-rose-400', 'text-amber-400');
+                    alertBox.querySelector('i')?.classList.replace('fa-circle-exclamation', 'fa-clock');
+                    errorMsg.innerText = 'Tu sesión ha expirado por tiempo de inactividad. Ingrese nuevamente.';
+                }
+            }
+        });
+
+        async function handleLogin(e) {
+            e.preventDefault();
+            const btn = document.getElementById('btn-submit');
+            const alertBox = document.getElementById('error-alert');
+            const errorMsg = document.getElementById('error-message');
+
+            const username = document.getElementById('username').value.trim();
+            const password = document.getElementById('password').value.trim();
+
+            if (!username || !password) return;
+
+            alertBox.classList.add('hidden');
+            btn.disabled = true;
+            btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Autenticando...`;
+
+            try {
+                const response = await fetch('/api/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+
+                const data = await response.json();
+
+                if (data.status === 'success') {
+                    window.location.href = '/';
+                } else {
+                    alertBox.classList.remove('hidden');
+                    errorMsg.innerText = data.message || 'Usuario o contraseña incorrectos.';
+                    btn.disabled = false;
+                    btn.innerHTML = `<span>Iniciar Sesión</span> <i class="fa-solid fa-arrow-right text-xs"></i>`;
+                }
+            } catch (err) {
+                console.error(err);
+                alertBox.classList.remove('hidden');
+                errorMsg.innerText = 'Error de conexión con el servidor.';
+                btn.disabled = false;
+                btn.innerHTML = `<span>Iniciar Sesión</span> <i class="fa-solid fa-arrow-right text-xs"></i>`;
+            }
+        }
+    </script>
+</body>
+</html>

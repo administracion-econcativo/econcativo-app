@@ -1,0 +1,70 @@
+/* ECONCATIVO Custom Styles */
+
+:root {
+    --navy-primary: #002B5C;
+    --navy-dark: #001D3F;
+    --amber-primary: #D48806;
+    --amber-dark: #B37000;
+}
+
+body {
+    background-color: #f8fafc;
+}
+
+/* Navigation button styling */
+.nav-btn {
+    color: #cbd5e1;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.nav-btn:hover {
+    color: #ffffff;
+    background-color: rgba(255, 255, 255, 0.08);
+}
+
+.nav-btn.active {
+    color: #ffffff;
+    background-color: #D48806;
+    box-shadow: 0 4px 6px -1px rgba(212, 136, 6, 0.3);
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: #f1f5f9;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
+}
+
+/* Badge styling */
+.badge-cobrado {
+    background-color: #dcfce7;
+    color: #15803d;
+}
+
+.badge-pendiente {
+    background-color: #fef3c7;
+    color: #b45309;
+}
+
+.badge-activo {
+    background-color: #e0f2fe;
+    color: #0369a1;
+}
+
+/* Table hover */
+tbody tr:hover {
+    background-color: #f8fafc;
+}
