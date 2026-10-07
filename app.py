@@ -1882,7 +1882,8 @@ def api_config_smtp():
                 'smtp_email': payload.get('smtp_email', ''),
                 'smtp_password': payload.get('smtp_password', ''),
                 'telefono_administracion': payload.get('telefono_administracion', ''),
-                'nombre_empresa': payload.get('nombre_empresa', 'ECONCATIVO S.A.S.')
+                'nombre_empresa': payload.get('nombre_empresa', 'ECONCATIVO S.A.S.'),
+                'brevo_api_key': payload.get('brevo_api_key', '')
             })
             return jsonify(res)
         else:
@@ -1893,7 +1894,8 @@ def api_config_smtp():
                     "smtp_email": cfg.get('smtp_email') or cfg.get('correo_empresa') or '',
                     "smtp_password": cfg.get('smtp_password') or cfg.get('clave_gmail') or '',
                     "telefono_administracion": cfg.get('telefono_administracion') or cfg.get('telefono') or '',
-                    "nombre_empresa": cfg.get('nombre_empresa') or 'ECONCATIVO S.A.S.'
+                    "nombre_empresa": cfg.get('nombre_empresa') or 'ECONCATIVO S.A.S.',
+                    "brevo_api_key": cfg.get('brevo_api_key') or os.environ.get('BREVO_API_KEY', '')
                 }
             })
     except Exception as e:

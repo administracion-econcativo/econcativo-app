@@ -866,6 +866,7 @@ async function openConfigSMTPModal() {
             if (document.getElementById('cfg-smtp-email')) document.getElementById('cfg-smtp-email').value = json.data.smtp_email || '';
             if (document.getElementById('cfg-smtp-password')) document.getElementById('cfg-smtp-password').value = json.data.smtp_password || '';
             if (document.getElementById('cfg-admin-phone')) document.getElementById('cfg-admin-phone').value = json.data.telefono_administracion || '';
+            if (document.getElementById('cfg-brevo-key')) document.getElementById('cfg-brevo-key').value = json.data.brevo_api_key || '';
         }
     } catch (e) {
         console.error("Error al cargar configuración SMTP:", e);
@@ -879,7 +880,8 @@ async function submitConfigSMTP(e) {
         const payload = {
             smtp_email: document.getElementById('cfg-smtp-email').value,
             smtp_password: document.getElementById('cfg-smtp-password').value,
-            telefono_administracion: document.getElementById('cfg-admin-phone').value
+            telefono_administracion: document.getElementById('cfg-admin-phone').value,
+            brevo_api_key: document.getElementById('cfg-brevo-key') ? document.getElementById('cfg-brevo-key').value.trim() : ''
         };
 
         const res = await fetch('/api/config/smtp', {

@@ -19,7 +19,8 @@ class EmailManager:
             'email_user': '',
             'email_password': '',
             'admin_phone': '',
-            'sender_name': 'ECONCATIVO S.A.S.'
+            'sender_name': 'ECONCATIVO S.A.S.',
+            'brevo_api_key': ''
         }
         if self.db:
             try:
@@ -27,6 +28,7 @@ class EmailManager:
                 config['email_user'] = cfg_dict.get('smtp_email') or cfg_dict.get('correo_empresa') or ''
                 config['email_password'] = cfg_dict.get('smtp_password') or cfg_dict.get('clave_gmail') or ''
                 config['admin_phone'] = cfg_dict.get('telefono_administracion') or cfg_dict.get('telefono') or ''
+                config['brevo_api_key'] = cfg_dict.get('brevo_api_key') or ''
                 if cfg_dict.get('nombre_empresa'):
                     config['sender_name'] = cfg_dict.get('nombre_empresa')
             except Exception as e:
@@ -39,6 +41,8 @@ class EmailManager:
             config['email_password'] = os.environ.get('SMTP_PASSWORD', '')
         if not config['admin_phone']:
             config['admin_phone'] = os.environ.get('ADMIN_PHONE', '')
+        if not config['brevo_api_key']:
+            config['brevo_api_key'] = os.environ.get('BREVO_API_KEY', '')
 
         return config
 
@@ -305,22 +309,120 @@ Administración ECONCATIVO S.A.S.
 </body>
 </html>"""
 
+    def _send_via_brevo_api(self, api_key, sender_email, sender_name, to_email, subject, html_body, body_text, pdf_bytes=None, pdf_filename="Factura_ARCA.pdf"):
+        """Sends email via Brevo HTTPS REST API (Port 443), working 100% seamlessly on Render Free Tier."""
+        import urllib.request
+        import urllib.error
+        import json
+        import base64
+
+        url = "https://api.brevo.com/v3/smtp/email"
+        headers = {
+            "accept": "application/json",
+            "api-key": api_key.strip(),
+            "content-type": "application/json"
+        }
+
+        # Embed logo as inline base64 data URI so it always displays cleanly in all mail clients
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        logo_path = os.path.join(base_dir, 'static', 'logo.png')
+        if os.path.exists(logo_path) and "cid:logo_econcativo" in html_body:
+            try:
+                with open(logo_path, 'rb') as f_logo:
+                    b64_logo = base64.b64encode(f_logo.read()).decode('utf-8')
+                html_body = html_body.replace('cid:logo_econcativo', f'data:image/png;base64,{b64_logo}')
+            except Exception:
+                pass
+
+        payload = {
+            "sender": {
+                "name": sender_name or "ECONCATIVO S.A.S.",
+                "email": sender_email.strip()
+            },
+            "to": [
+                {"email": str(to_email).strip()}
+            ],
+            "subject": str(subject).strip(),
+            "htmlContent": html_body,
+            "textContent": body_text
+        }
+
+        if pdf_bytes:
+            payload["attachment"] = [
+                {
+                    "name": pdf_filename,
+                    "content": base64.b64encode(pdf_bytes).decode('utf-8')
+                }
+            ]
+
+        try:
+            req_data = json.dumps(payload).encode('utf-8')
+            req = urllib.request.Request(url, data=req_data, headers=headers, method='POST')
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                status_code = resp.getcode()
+                if status_code in (200, 201, 202):
+                    success_msg = f"Factura enviada con éxito a {to_email}" + (" con el PDF adjunto." if pdf_bytes else ".")
+                    return {
+                        "status": "success",
+                        "message": success_msg
+                    }
+                else:
+                    return {
+                        "status": "error",
+                        "message": f"Respuesta inesperada de Brevo API (código {status_code})."
+                    }
+        except urllib.error.HTTPError as http_err:
+            try:
+                err_detail = http_err.read().decode('utf-8')
+                err_json = json.loads(err_detail)
+                msg = err_json.get('message', err_detail)
+            except Exception:
+                msg = str(http_err)
+            return {
+                "status": "error",
+                "message": f"Error en la API de Brevo ({http_err.code}): {msg}"
+            }
+        except Exception as e:
+            return {
+                "status": "error",
+                "message": f"Error de conexión con la API de Brevo: {str(e)}"
+            }
+
     def send_email_with_pdf(self, to_email, subject, body_text, pdf_bytes, pdf_filename="Factura_ARCA.pdf", html_body=None):
-        """Sends MIME email via Gmail SMTP with optional PDF file attached and embedded corporate logo."""
+        """Sends MIME email via Gmail SMTP or Brevo HTTPS REST API with optional PDF file attached."""
         cfg = self.get_smtp_config()
         sender_email = cfg.get('email_user')
         sender_password = cfg.get('email_password')
-
-        if not sender_email or not sender_password:
-            return {
-                "status": "error",
-                "message": "Falta configurar el email de la empresa y la clave de aplicación de Gmail en la solapa CONFIGURACIÓN."
-            }
+        brevo_api_key = cfg.get('brevo_api_key')
 
         if not to_email or '@' not in str(to_email):
             return {
                 "status": "error",
                 "message": "El correo electrónico del destinatario no es válido o no está registrado."
+            }
+
+        # Prioritize rich corporate HTML body (self.last_html_body) or fallback to text parser
+        final_html_body = html_body or self.last_html_body or self._text_to_html_body(body_text)
+
+        # 1. Prioritize HTTP REST API (Brevo) which operates over HTTPS port 443 (never blocked by Render Free)
+        if brevo_api_key and str(brevo_api_key).strip():
+            return self._send_via_brevo_api(
+                api_key=brevo_api_key.strip(),
+                sender_email=sender_email or 'administracion.econcativo@gmail.com',
+                sender_name=cfg.get('sender_name', 'ECONCATIVO S.A.S.'),
+                to_email=to_email,
+                subject=subject,
+                html_body=final_html_body,
+                body_text=body_text,
+                pdf_bytes=pdf_bytes,
+                pdf_filename=pdf_filename
+            )
+
+        # 2. Fallback to standard SMTP (local development or paid hosting with open port 587)
+        if not sender_email or not sender_password:
+            return {
+                "status": "error",
+                "message": "Falta configurar el email de la empresa y la clave de aplicación de Gmail (o la API Key de Brevo para Render gratis)."
             }
 
         try:
@@ -339,9 +441,6 @@ Administración ECONCATIVO S.A.S.
             # Alternative container for plain text and HTML
             msg_alternative = MIMEMultipart('alternative')
             msg_alternative.attach(MIMEText(body_text, 'plain', 'utf-8'))
-
-            # Prioritize rich corporate HTML body (self.last_html_body) or fallback to text parser
-            final_html_body = html_body or self.last_html_body or self._text_to_html_body(body_text)
             msg_alternative.attach(MIMEText(final_html_body, 'html', 'utf-8'))
 
             msg_related.attach(msg_alternative)

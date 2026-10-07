@@ -4375,6 +4375,12 @@
                     <input type="text" id="cfg-admin-phone" required placeholder="ej: 3572-15400000" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800 outline-none focus:ring-2 focus:ring-navy">
                 </div>
 
+                <div class="bg-blue-50/70 p-3 rounded-xl border border-blue-200/80 space-y-1">
+                    <label class="font-bold text-blue-950 block"><i class="fa-solid fa-cloud text-blue-600 mr-1"></i>API Key de Brevo (Para Render 100% Gratis - Opcional)</label>
+                    <input type="password" id="cfg-brevo-key" placeholder="xkeysib-..." class="w-full p-2 bg-white border border-blue-200 rounded-lg font-mono text-xs text-slate-800 outline-none focus:ring-2 focus:ring-blue-500">
+                    <p class="text-[10px] text-blue-800 font-medium">Permite enviar correos vía HTTPS sin que Render bloquee los puertos SMTP. Cuenta gratis en <a href="https://www.brevo.com" target="_blank" class="underline font-bold text-blue-900">brevo.com</a> (300 emails/día gratis).</p>
+                </div>
+
                 <div class="flex justify-end gap-3 pt-3 border-t border-slate-100">
                     <button type="button" onclick="closeModal('modal-config-smtp')" class="px-4 py-2 font-bold text-slate-500">Cancelar</button>
                     <button type="submit" class="bg-navy hover:bg-navy-dark text-white font-bold px-6 py-2 rounded-xl shadow cursor-pointer">Guardar Configuración</button>
