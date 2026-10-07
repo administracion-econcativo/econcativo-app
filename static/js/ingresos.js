@@ -772,7 +772,7 @@ async function openSendFacturaEmailModal(iid) {
     const clienteNombre = str(getRowProp(target, ['Cliente'])).trim();
 
     if (document.getElementById('mfe-id')) document.getElementById('mfe-id').value = iid;
-    if (document.getElementById('mfe-subject')) document.getElementById('mfe-subject').value = `Factura de Venta / Comprobante - ECONCATIVO SRL (${nroFactura || iid})`;
+    if (document.getElementById('mfe-subject')) document.getElementById('mfe-subject').value = `Factura de Venta / Comprobante - ECONCATIVO S.A.S. (${nroFactura || iid})`;
     if (document.getElementById('mfe-pdf')) document.getElementById('mfe-pdf').value = '';
 
     const statusEl = document.getElementById('mfe-email-status');

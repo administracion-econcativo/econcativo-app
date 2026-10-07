@@ -1901,46 +1901,82 @@ def api_config_smtp():
 @app.route('/api/facturacion/send_email', methods=['POST'])
 def api_send_factura_email():
     try:
-        if request.files and 'pdf_file' in request.files:
+        to_email = None
+        subject = None
+        message = None
+        pdf_bytes = None
+        pdf_filename = "Factura_ARCA.pdf"
+        ingreso_id = None
+
+        if request.form:
             to_email = request.form.get('to_email')
             subject = request.form.get('subject')
             message = request.form.get('message')
-            pdf_file = request.files.get('pdf_file')
-            pdf_bytes = pdf_file.read() if pdf_file else None
-            pdf_filename = pdf_file.filename if pdf_file else "Factura_ARCA.pdf"
-        else:
-            payload = request.json or {}
+            ingreso_id = request.form.get('ingreso_id')
+        elif request.is_json:
+            payload = request.get_json(silent=True) or {}
             to_email = payload.get('to_email')
             subject = payload.get('subject')
             message = payload.get('message')
-            pdf_bytes = None
-            pdf_filename = "Factura_ARCA.pdf"
+            ingreso_id = payload.get('ingreso_id')
+        else:
+            payload = request.get_json(silent=True) or request.form.to_dict() or {}
+            to_email = payload.get('to_email') or request.form.get('to_email')
+            subject = payload.get('subject') or request.form.get('subject')
+            message = payload.get('message') or request.form.get('message')
+            ingreso_id = payload.get('ingreso_id') or request.form.get('ingreso_id')
+
+        if request.files and 'pdf_file' in request.files:
+            pdf_file = request.files.get('pdf_file')
+            if pdf_file and pdf_file.filename:
+                raw_bytes = pdf_file.read()
+                if raw_bytes:
+                    pdf_bytes = raw_bytes
+                    pdf_filename = pdf_file.filename
+
+        if not to_email:
+            return jsonify({"status": "error", "message": "Debe especificar el correo electrónico destinatario."}), 400
+
+        # Build fresh branded HTML body with live bank accounts
+        if ingreso_id:
+            try:
+                _, facturacion_rows = db.get_sheet_data('INGRESOS')
+                target = next((r for r in facturacion_rows if str(db._get_row_prop(r, ['id_ingreso', 'ID ingreso/factura', 'ID ingreso', 'ID']) or '').strip() == str(ingreso_id).strip()), None)
+                if target:
+                    cliente_nombre = db._get_row_prop(target, ['cliente', 'Cliente']) or "Cliente"
+                    nro_factura = db._get_row_prop(target, ['nro_factura_arca', 'N° factura ARCA', 'Factura']) or ingreso_id
+                    total_val = db._get_row_prop(target, ['total', 'Total']) or 0
+                    try:
+                        total_val = float(total_val)
+                    except (ValueError, TypeError):
+                        pass
+                    email_mgr.build_factura_email_template(cliente_nombre, nro_factura, total_val, message_override=message)
+            except Exception as bld_err:
+                print(f"[api_send_factura_email build template error] {bld_err}")
 
         res = email_mgr.send_email_with_pdf(
             to_email=to_email,
-            subject=subject,
-            body_text=message,
+            subject=subject or "Factura de Venta / Comprobante - ECONCATIVO S.A.S.",
+            body_text=message or "Se remite comprobante de facturación de ECONCATIVO S.A.S.",
             pdf_bytes=pdf_bytes,
-            pdf_filename=pdf_filename
+            pdf_filename=pdf_filename,
+            html_body=email_mgr.last_html_body
         )
         return jsonify(res)
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route('/api/facturacion/<target_id>/email_preview', methods=['GET'])
 def api_factura_email_preview(target_id):
     try:
-        wb = db.load_wb(data_only=True)
-        facturacion_rows = []
-        if 'INGRESOS' in wb.sheetnames:
-            _, rows = db._read_sheet_rows(wb['INGRESOS'])
-            facturacion_rows = rows
+        _, facturacion_rows = db.get_sheet_data('INGRESOS')
+        target = next((r for r in facturacion_rows if str(db._get_row_prop(r, ['id_ingreso', 'ID ingreso/factura', 'ID ingreso', 'ID']) or '').strip() == str(target_id).strip()), None)
         
-        target = next((r for r in facturacion_rows if str(db._get_row_prop(r, ['ID ingreso/factura', 'ID ingreso', 'ID']) or '').strip() == str(target_id).strip()), None)
-        
-        cliente_nombre = db._get_row_prop(target, ['Cliente']) if target else ''
-        nro_factura = db._get_row_prop(target, ['N° factura ARCA', 'Factura']) if target else ''
-        total = db._get_row_prop(target, ['Total']) if target else 0
+        cliente_nombre = db._get_row_prop(target, ['cliente', 'Cliente']) if target else ''
+        nro_factura = db._get_row_prop(target, ['nro_factura_arca', 'N° factura ARCA', 'Factura']) if target else ''
+        total = db._get_row_prop(target, ['total', 'Total']) if target else 0
         try:
             total_val = float(total)
         except (ValueError, TypeError):
@@ -1949,19 +1985,34 @@ def api_factura_email_preview(target_id):
         # Recipient email lookup from Clientes master list
         recipient_email = ""
         email_found = False
-        if cliente_nombre and 'CLIENTES' in wb.sheetnames:
-            _, c_rows = db._read_sheet_rows(wb['CLIENTES'])
+        if cliente_nombre:
+            _, c_rows = db.get_sheet_data('CLIENTES')
             c_name_norm = str(cliente_nombre).strip().lower()
-            match = next((c for c in c_rows if str(db._get_row_prop(c, ['Razón social / Nombre', 'Razon social / Nombre', 'Razon Social', 'Nombre', 'Cliente']) or '').strip().lower() == c_name_norm), None)
+            match = next((c for c in c_rows if str(db._get_row_prop(c, ['razon_social', 'Razón social / Nombre', 'Razon social / Nombre', 'Razon Social', 'Nombre', 'Cliente']) or '').strip().lower() == c_name_norm), None)
             if not match:
-                match = next((c for c in c_rows if c_name_norm in str(db._get_row_prop(c, ['Razón social / Nombre', 'Razon social / Nombre', 'Razon Social', 'Nombre', 'Cliente']) or '').strip().lower() or str(db._get_row_prop(c, ['Razón social / Nombre', 'Razon social / Nombre', 'Razon Social', 'Nombre', 'Cliente']) or '').strip().lower() in c_name_norm), None)
+                match = next((c for c in c_rows if c_name_norm in str(db._get_row_prop(c, ['razon_social', 'Razón social / Nombre', 'Razon social / Nombre', 'Razon Social', 'Nombre', 'Cliente']) or '').strip().lower() or str(db._get_row_prop(c, ['razon_social', 'Razón social / Nombre', 'Razon social / Nombre', 'Razon Social', 'Nombre', 'Cliente']) or '').strip().lower() in c_name_norm), None)
             
             if match:
-                recipient_email = str(db._get_row_prop(match, ['Correo', 'Email', 'Correo electrónico', 'Correo electronico']) or '').strip()
+                recipient_email = str(db._get_row_prop(match, ['correo', 'Correo', 'Email', 'Correo electrónico', 'Correo electronico']) or '').strip()
                 if recipient_email:
                     email_found = True
 
-        subject = f"Factura de Venta / Comprobante - ECONCATIVO SRL ({nro_factura or target_id})"
+        # Also check cuit_cuil on target invoice to see if client can be matched by CUIT
+        if not email_found and target:
+            target_cuit = str(db._get_row_prop(target, ['cuit_cuil', 'CUIT/CUIL', 'cuit']) or '').strip()
+            if target_cuit:
+                _, c_rows = db.get_sheet_data('CLIENTES')
+                clean_target_cuit = target_cuit.replace('-', '').replace(' ', '')
+                for c in c_rows:
+                    c_cuit = str(db._get_row_prop(c, ['cuit_cuil', 'CUIT/CUIL', 'cuit']) or '').strip().replace('-', '').replace(' ', '')
+                    if c_cuit and c_cuit == clean_target_cuit:
+                        found_em = str(db._get_row_prop(c, ['correo', 'Correo', 'Email']) or '').strip()
+                        if found_em:
+                            recipient_email = found_em
+                            email_found = True
+                            break
+
+        subject = f"Factura de Venta / Comprobante - ECONCATIVO S.A.S. ({nro_factura or target_id})"
         body_text = email_mgr.build_factura_email_template(cliente_nombre or "Cliente", nro_factura or target_id, total_val)
 
         return jsonify({

@@ -251,8 +251,62 @@ Administración ECONCATIVO S.A.S.
 
         return body_text
 
-    def send_email_with_pdf(self, to_email, subject, body_text, pdf_bytes, pdf_filename="Factura_ARCA.pdf"):
-        """Sends MIME email via Gmail SMTP with PDF file attached and embedded corporate logo."""
+    def _text_to_html_body(self, body_text):
+        """Converts plain text body into corporate branded HTML layout with logo and styled sections."""
+        import html
+        
+        escaped_text = html.escape(body_text or '')
+        lines = escaped_text.split('\n')
+        html_lines = []
+        for line in lines:
+            line_str = line.strip()
+            if not line_str:
+                html_lines.append('<div style="height: 10px;"></div>')
+            elif line_str.startswith('💳') or 'DATOS BANCARIOS' in line_str:
+                html_lines.append(f'<div style="font-size: 15px; font-weight: bold; color: #0f172a; margin-top: 22px; margin-bottom: 12px; border-bottom: 2px solid #e2e8f0; padding-bottom: 6px;">{line}</div>')
+            elif line_str.startswith('📞') or 'CONTACTO DE ADMINISTRACIÓN' in line_str:
+                html_lines.append(f'<div style="font-size: 15px; font-weight: bold; color: #0f172a; margin-top: 22px; margin-bottom: 12px; border-bottom: 2px solid #e2e8f0; padding-bottom: 6px;">{line}</div>')
+            elif line_str.startswith('🏦'):
+                html_lines.append(f'<div style="font-size: 15px; font-weight: bold; color: #0f172a; margin-top: 8px; margin-bottom: 4px;">{line}</div>')
+            elif line_str.startswith('•') or line_str.startswith('&bull;'):
+                html_lines.append(f'<div style="margin-left: 12px; font-size: 13px; color: #334155; margin-bottom: 4px; font-weight: 500;">{line}</div>')
+            elif line_str.startswith('Estimado'):
+                html_lines.append(f'<div style="font-size: 16px; font-weight: bold; color: #0f172a; margin-bottom: 14px;">{line}</div>')
+            else:
+                html_lines.append(f'<div style="font-size: 13px; line-height: 1.6; color: #334155; margin-bottom: 6px;">{line}</div>')
+                
+        content_html = "\n".join(html_lines)
+        
+        return f"""<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Factura de Servicio - ECONCATIVO S.A.S.</title>
+</head>
+<body style="font-family: 'Segoe UI', Arial, sans-serif; background-color: #f1f5f9; color: #1e293b; margin: 0; padding: 20px;">
+    <div style="max-width: 620px; margin: 0 auto; background: #ffffff; border-radius: 16px; overflow: hidden; border: 1px solid #cbd5e1; box-shadow: 0 4px 12px rgba(0,0,0,0.06);">
+        <!-- Header -->
+        <div style="background: #0f172a; padding: 25px 30px; text-align: center; border-bottom: 4px solid #f59e0b;">
+            <img src="cid:logo_econcativo" alt="ECONCATIVO S.A.S." style="height: 52px; width: auto; max-width: 220px; display: block; margin: 0 auto 10px auto;">
+            <h1 style="color: #ffffff; font-size: 20px; margin: 0; font-weight: 700; letter-spacing: 1px;">ECONCATIVO S.A.S.</h1>
+            <div style="color: #94a3b8; font-size: 12px; margin-top: 4px;">Servicios de Transporte & Logística</div>
+        </div>
+        <!-- Content -->
+        <div style="padding: 26px 30px;">
+            {content_html}
+        </div>
+        <!-- Footer -->
+        <div style="background: #f8fafc; padding: 18px 30px; text-align: center; border-top: 1px solid #e2e8f0; font-size: 12px; color: #64748b; line-height: 1.5;">
+            Atentamente,<br>
+            <strong style="color: #0f172a; font-size: 13px;">Administración ECONCATIVO S.A.S.</strong><br>
+            <span style="font-size: 11px; color: #94a3b8;">Sistema Integral de Gestión Comercial & Logística</span>
+        </div>
+    </div>
+</body>
+</html>"""
+
+    def send_email_with_pdf(self, to_email, subject, body_text, pdf_bytes, pdf_filename="Factura_ARCA.pdf", html_body=None):
+        """Sends MIME email via Gmail SMTP with optional PDF file attached and embedded corporate logo."""
         cfg = self.get_smtp_config()
         sender_email = cfg.get('email_user')
         sender_password = cfg.get('email_password')
@@ -286,8 +340,9 @@ Administración ECONCATIVO S.A.S.
             msg_alternative = MIMEMultipart('alternative')
             msg_alternative.attach(MIMEText(body_text, 'plain', 'utf-8'))
 
-            if self.last_html_body:
-                msg_alternative.attach(MIMEText(self.last_html_body, 'html', 'utf-8'))
+            # Prioritize rich corporate HTML body (self.last_html_body) or fallback to text parser
+            final_html_body = html_body or self.last_html_body or self._text_to_html_body(body_text)
+            msg_alternative.attach(MIMEText(final_html_body, 'html', 'utf-8'))
 
             msg_related.attach(msg_alternative)
 
@@ -317,9 +372,10 @@ Administración ECONCATIVO S.A.S.
             server.sendmail(sender_email, [to_email], msg.as_string())
             server.quit()
 
+            success_msg = f"Factura enviada con éxito a {to_email}" + (" con el PDF adjunto." if pdf_bytes else ".")
             return {
                 "status": "success",
-                "message": f"Factura enviada con éxito a {to_email} con el PDF adjunto."
+                "message": success_msg
             }
         except smtplib.SMTPAuthenticationError:
             return {
