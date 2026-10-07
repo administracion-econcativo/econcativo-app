@@ -24,7 +24,7 @@ db = DataManager()
 db.init_default_users()
 email_mgr = EmailManager(db)
 
-PUBLIC_PATHS = ['/login', '/api/login', '/favicon.ico', '/api/health', '/api/db/status']
+PUBLIC_PATHS = ['/login', '/api/login', '/favicon.ico', '/health', '/api/health', '/api/db/status']
 
 @app.before_request
 def check_authentication():    
@@ -94,6 +94,7 @@ def api_pdf_manual_instructivo():
 def favicon():
     return send_file(os.path.join(app.static_folder, 'favicon.ico'), mimetype='image/vnd.microsoft.icon')
 
+@app.route('/health')
 @app.route('/api/health')
 def health():
     return jsonify({
