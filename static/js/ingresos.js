@@ -353,16 +353,37 @@ function completarFacturacionData(iid) {
 
 function calcCobroTotal() {
     const transf = parseFloat(document.getElementById('ic-monto-transferencia')?.value) || 0;
-    const echeq = parseFloat(document.getElementById('ic-monto-echeq')?.value) || 0;
-    const cheque = parseFloat(document.getElementById('ic-monto-cheque')?.value) || 0;
     const efectivo = parseFloat(document.getElementById('ic-monto-efectivo')?.value) || 0;
     const tarjeta = parseFloat(document.getElementById('ic-monto-tarjeta')?.value) || 0;
+
+    // Calcular suma de todos los cheques agregados dinámicamente
+    let totalCheques = 0;
+    let cantCheques = 0;
+    const chqRows = document.querySelectorAll('#ic-cheques-container .ic-cheque-row');
+    chqRows.forEach(row => {
+        const m = parseFloat(row.querySelector('.ic-chq-monto')?.value) || 0;
+        if (m > 0) {
+            totalCheques += m;
+            cantCheques++;
+        }
+    });
+
+    // Actualizar badge de subtotal de cheques
+    const chqBadge = document.getElementById('ic-total-cheques-badge');
+    if (chqBadge) {
+        if (chqRows.length > 0) {
+            chqBadge.classList.remove('hidden');
+            chqBadge.innerText = `Subtotal Cheques: ${formatARS(totalCheques)} (${chqRows.length} ${chqRows.length === 1 ? 'cheque' : 'cheques'})`;
+        } else {
+            chqBadge.classList.add('hidden');
+        }
+    }
 
     const sfCheck = document.getElementById('ic-check-saldo-favor');
     const sfInput = document.getElementById('ic-monto-saldo-favor');
     const saldoFavor = (sfCheck && sfCheck.checked && sfInput) ? (parseFloat(sfInput.value) || 0) : 0;
 
-    const totalSum = transf + echeq + cheque + efectivo + tarjeta + saldoFavor;
+    const totalSum = transf + totalCheques + efectivo + tarjeta + saldoFavor;
     const sumEl = document.getElementById('ic-sum-calc');
     if (sumEl) sumEl.innerText = formatARS(totalSum);
 
@@ -383,31 +404,100 @@ function calcCobroTotal() {
     } else if (feedbackEl) {
         feedbackEl.innerHTML = '';
     }
+}
 
-    const chqDetails = document.getElementById('container-ic-cheque-detalles');
-    if (chqDetails) {
-        if (cheque > 0) {
-            chqDetails.classList.remove('hidden');
-            const vtoEl = document.getElementById('ic-cheque-vencimiento');
-            if (vtoEl && !vtoEl.value) {
-                vtoEl.value = document.getElementById('ic-fecha')?.value || new Date().toISOString().split('T')[0];
-            }
-        } else {
-            chqDetails.classList.add('hidden');
+function agregarFilaChequeCobro(chqData = null) {
+    const container = document.getElementById('ic-cheques-container');
+    const emptyMsg = document.getElementById('ic-cheques-empty');
+    if (!container) return;
+    if (emptyMsg) emptyMsg.classList.add('hidden');
+
+    const defaultFecha = document.getElementById('ic-fecha')?.value || new Date().toISOString().split('T')[0];
+    const tipo = chqData?.tipo || 'Cheque Físico';
+    const monto = chqData?.monto || '';
+    const nro = chqData?.nro || '';
+    const banco = chqData?.banco || '';
+    const fechaVenc = chqData?.fecha_venc || defaultFecha;
+
+    const rowDiv = document.createElement('div');
+    rowDiv.className = 'ic-cheque-row bg-white p-3 rounded-xl border border-amber-200/90 shadow-sm space-y-2 transition-all';
+    rowDiv.innerHTML = `
+        <div class="flex items-center justify-between border-b border-amber-100 pb-2">
+            <div class="flex items-center gap-2">
+                <span class="ic-chq-badge text-[11px] font-bold px-2 py-0.5 rounded-full ${tipo === 'E-Cheq' ? 'bg-purple-100 text-purple-800 border border-purple-300' : 'bg-amber-100 text-amber-800 border border-amber-300'}">
+                    Cheque #<span class="ic-chq-index">1</span>
+                </span>
+                <select class="ic-chq-tipo text-xs font-bold bg-slate-50 border border-slate-300 rounded-lg px-2 py-1 outline-none focus:ring-2 focus:ring-amber-500 cursor-pointer" onchange="onChequeTipoChange(this)">
+                    <option value="Cheque Físico" ${tipo === 'Cheque Físico' ? 'selected' : ''}>Cheque Físico</option>
+                    <option value="E-Cheq" ${tipo === 'E-Cheq' ? 'selected' : ''}>E-Cheq</option>
+                </select>
+                <span class="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-full border border-emerald-200 hidden sm:inline-block">Cartera: Disponible</span>
+            </div>
+            <button type="button" onclick="eliminarFilaChequeCobro(this)" class="text-rose-500 hover:text-rose-700 hover:bg-rose-50 px-2 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1 cursor-pointer">
+                <i class="fa-solid fa-trash-can"></i> Eliminar
+            </button>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-4 gap-2">
+            <div>
+                <label class="block text-[10px] font-bold text-slate-600 mb-0.5">Monto ($) *</label>
+                <input type="number" step="0.01" class="ic-chq-monto w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-black text-slate-800 outline-none focus:ring-2 focus:ring-amber-500" placeholder="0.00" value="${monto}" oninput="calcCobroTotal()" required>
+            </div>
+            <div>
+                <label class="block text-[10px] font-bold text-slate-600 mb-0.5">N° de Cheque *</label>
+                <input type="text" class="ic-chq-nro w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 outline-none focus:ring-2 focus:ring-amber-500" placeholder="Ej. 18273645" value="${nro}" required>
+            </div>
+            <div>
+                <label class="block text-[10px] font-bold text-slate-600 mb-0.5">Banco Emisor *</label>
+                <input type="text" class="ic-chq-banco w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 outline-none focus:ring-2 focus:ring-amber-500" placeholder="Ej. Galicia, Macro" value="${banco}" required>
+            </div>
+            <div>
+                <label class="block text-[10px] font-bold text-slate-600 mb-0.5">Fecha Cobro / Vto *</label>
+                <input type="date" class="ic-chq-venc w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 outline-none focus:ring-2 focus:ring-amber-500" value="${fechaVenc}" required>
+            </div>
+        </div>
+    `;
+    container.appendChild(rowDiv);
+    renumerarFilasCheques();
+    calcCobroTotal();
+}
+
+function onChequeTipoChange(selectEl) {
+    const row = selectEl.closest('.ic-cheque-row');
+    if (!row) return;
+    const badge = row.querySelector('.ic-chq-badge');
+    if (selectEl.value === 'E-Cheq') {
+        if (badge) {
+            badge.className = 'ic-chq-badge text-[11px] font-bold px-2 py-0.5 rounded-full bg-purple-100 text-purple-800 border border-purple-300';
+        }
+    } else {
+        if (badge) {
+            badge.className = 'ic-chq-badge text-[11px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-300';
         }
     }
+}
 
-    const echqDetails = document.getElementById('container-ic-echeq-detalles');
-    if (echqDetails) {
-        if (echeq > 0) {
-            echqDetails.classList.remove('hidden');
-            const vtoEl = document.getElementById('ic-echeq-vencimiento');
-            if (vtoEl && !vtoEl.value) {
-                vtoEl.value = document.getElementById('ic-fecha')?.value || new Date().toISOString().split('T')[0];
-            }
-        } else {
-            echqDetails.classList.add('hidden');
-        }
+function eliminarFilaChequeCobro(btn) {
+    const row = btn.closest('.ic-cheque-row');
+    if (row) {
+        row.remove();
+        renumerarFilasCheques();
+        calcCobroTotal();
+    }
+}
+
+function renumerarFilasCheques() {
+    const container = document.getElementById('ic-cheques-container');
+    const emptyMsg = document.getElementById('ic-cheques-empty');
+    if (!container) return;
+    const rows = container.querySelectorAll('.ic-cheque-row');
+    if (rows.length === 0) {
+        if (emptyMsg) emptyMsg.classList.remove('hidden');
+    } else {
+        if (emptyMsg) emptyMsg.classList.add('hidden');
+        rows.forEach((r, idx) => {
+            const idxSpan = r.querySelector('.ic-chq-index');
+            if (idxSpan) idxSpan.innerText = String(idx + 1);
+        });
     }
 }
 
@@ -604,18 +694,15 @@ async function marcarComoCobrado(iid) {
     `;
     document.getElementById('ic-disp-total').innerHTML = dispTotalHtml;
     
+    // Reset Cheques Dinámicos
+    const chqContainer = document.getElementById('ic-cheques-container');
+    if (chqContainer) chqContainer.innerHTML = '';
+    renumerarFilasCheques();
+
     // Auto fill cash/transfer with remaining balance to collect
     document.getElementById('ic-monto-transferencia').value = saldoACobrar > 0 ? saldoACobrar : '';
-    document.getElementById('ic-monto-echeq').value = '';
-    document.getElementById('ic-monto-cheque').value = '';
     document.getElementById('ic-monto-efectivo').value = '';
     document.getElementById('ic-monto-tarjeta').value = '';
-    if (document.getElementById('ic-cheque-nro')) document.getElementById('ic-cheque-nro').value = '';
-    if (document.getElementById('ic-cheque-banco')) document.getElementById('ic-cheque-banco').value = '';
-    if (document.getElementById('ic-cheque-vencimiento')) document.getElementById('ic-cheque-vencimiento').value = '';
-    if (document.getElementById('ic-echeq-nro')) document.getElementById('ic-echeq-nro').value = '';
-    if (document.getElementById('ic-echeq-banco')) document.getElementById('ic-echeq-banco').value = '';
-    if (document.getElementById('ic-echeq-vencimiento')) document.getElementById('ic-echeq-vencimiento').value = '';
     calcCobroTotal();
 
     document.getElementById('ic-fecha').value = new Date().toISOString().split('T')[0];
@@ -684,13 +771,52 @@ async function submitCobro(e) {
     const sfInput = document.getElementById('ic-monto-saldo-favor');
     const sfVal = (sfCheck && sfCheck.checked && sfInput) ? (parseFloat(sfInput.value) || 0) : 0;
 
-    const transf = parseFloat(document.getElementById('ic-monto-transferencia').value) || 0;
-    const echeq = parseFloat(document.getElementById('ic-monto-echeq').value) || 0;
-    const cheque = parseFloat(document.getElementById('ic-monto-cheque').value) || 0;
-    const efectivo = parseFloat(document.getElementById('ic-monto-efectivo').value) || 0;
-    const tarjeta = parseFloat(document.getElementById('ic-monto-tarjeta').value) || 0;
+    const transf = parseFloat(document.getElementById('ic-monto-transferencia')?.value) || 0;
+    const efectivo = parseFloat(document.getElementById('ic-monto-efectivo')?.value) || 0;
+    const tarjeta = parseFloat(document.getElementById('ic-monto-tarjeta')?.value) || 0;
 
-    const totalCobro = transf + echeq + cheque + efectivo + tarjeta + sfVal;
+    // Recolectar cheques dinámicos
+    const chequesList = [];
+    const chqRows = document.querySelectorAll('#ic-cheques-container .ic-cheque-row');
+    let validationError = null;
+
+    chqRows.forEach((row, idx) => {
+        if (validationError) return;
+        const tipo = row.querySelector('.ic-chq-tipo')?.value || 'Cheque Físico';
+        const monto = parseFloat(row.querySelector('.ic-chq-monto')?.value) || 0;
+        const nro = row.querySelector('.ic-chq-nro')?.value?.trim() || '';
+        const banco = row.querySelector('.ic-chq-banco')?.value?.trim() || '';
+        const venc = row.querySelector('.ic-chq-venc')?.value || document.getElementById('ic-fecha')?.value;
+
+        if (monto <= 0) {
+            validationError = `El Cheque #${idx + 1} tiene un monto inválido o en $0.`;
+            return;
+        }
+        if (!nro) {
+            validationError = `Por favor ingresá el Nº de cheque para el Cheque #${idx + 1}.`;
+            return;
+        }
+        if (!banco) {
+            validationError = `Por favor ingresá el banco emisor para el Cheque #${idx + 1}.`;
+            return;
+        }
+
+        chequesList.push({
+            tipo: tipo,
+            monto: monto,
+            nro: nro,
+            banco: banco,
+            fecha_venc: venc
+        });
+    });
+
+    if (validationError) {
+        showToast(validationError, "error");
+        return;
+    }
+
+    const totalCheques = chequesList.reduce((acc, c) => acc + c.monto, 0);
+    const totalCobro = transf + totalCheques + efectivo + tarjeta + sfVal;
     if (totalCobro <= 0) {
         showToast("Debes ingresar un importe mayor a 0 en al menos un medio de pago.", "error");
         return;
@@ -708,34 +834,13 @@ async function submitCobro(e) {
         cuit: document.getElementById('ic-cuit-hidden')?.value?.trim() || '',
         fecha_cobro: document.getElementById('ic-fecha').value,
         monto_transferencia: transf,
-        monto_echeq: echeq,
-        monto_cheque: cheque,
         monto_efectivo: efectivo,
         monto_tarjeta: tarjeta,
         monto_saldo_favor: sfVal,
+        cheques: chequesList,
         cuenta_destino: document.getElementById('ic-cuenta-destino')?.value || '',
         observaciones: document.getElementById('ic-observaciones').value
     };
-
-    if (cheque > 0) {
-        payload.nro_cheque = document.getElementById('ic-cheque-nro')?.value?.trim() || '';
-        payload.banco_cheque = document.getElementById('ic-cheque-banco')?.value?.trim() || '';
-        payload.fecha_venc_cheque = document.getElementById('ic-cheque-vencimiento')?.value || payload.fecha_cobro;
-        if (!payload.nro_cheque) {
-            showToast("Por favor ingresá el Nº del cheque físico para registrarlo en Cartera de Cheques.", "error");
-            return;
-        }
-    }
-
-    if (echeq > 0) {
-        payload.nro_echeq = document.getElementById('ic-echeq-nro')?.value?.trim() || '';
-        payload.banco_echeq = document.getElementById('ic-echeq-banco')?.value?.trim() || '';
-        payload.fecha_venc_echeq = document.getElementById('ic-echeq-vencimiento')?.value || payload.fecha_cobro;
-        if (!payload.nro_echeq) {
-            showToast("Por favor ingresá el Nº del E-Cheq para registrarlo en Cartera de Cheques.", "error");
-            return;
-        }
-    }
 
     try {
         const res = await fetch('/api/ingresos/cobro/add', {

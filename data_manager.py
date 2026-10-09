@@ -1924,21 +1924,68 @@ class DataManager:
         m_tarjeta = self._to_float(cdata.get('monto_tarjeta'))
         m_saldo_favor = self._to_float(cdata.get('monto_saldo_favor'))
 
-        total_dinero_nuevo = m_transf + m_echeq + m_cheque + m_efectivo + m_tarjeta
+        # Normalize cheques list (support multiple cheques / e-cheqs)
+        cheques_raw = cdata.get('cheques')
+        processed_cheques_input = []
+        if isinstance(cheques_raw, list) and len(cheques_raw) > 0:
+            for ch in cheques_raw:
+                m = self._to_float(ch.get('monto'))
+                if m > 0:
+                    t = str(ch.get('tipo') or 'Cheque Físico').strip()
+                    if 'e-cheq' in t.lower() or 'echeq' in t.lower():
+                        t = 'E-Cheq'
+                    else:
+                        t = 'Cheque Físico'
+                    processed_cheques_input.append({
+                        'tipo': t,
+                        'monto': m,
+                        'nro': str(ch.get('nro') or ch.get('nro_cheque') or '').strip(),
+                        'banco': str(ch.get('banco') or ch.get('banco_cheque') or 'A completar').strip(),
+                        'fecha_venc': str(ch.get('fecha_venc') or ch.get('vencimiento') or fecha_cobro).strip()
+                    })
+        else:
+            # Legacy fallback: single cheque / e-cheq
+            if m_cheque > 0:
+                processed_cheques_input.append({
+                    'tipo': 'Cheque Físico',
+                    'monto': m_cheque,
+                    'nro': str(cdata.get('nro_cheque') or '').strip(),
+                    'banco': str(cdata.get('banco_cheque') or cdata.get('banco') or 'A completar').strip(),
+                    'fecha_venc': str(cdata.get('fecha_venc_cheque') or cdata.get('vencimiento') or fecha_cobro).strip()
+                })
+            if m_echeq > 0:
+                processed_cheques_input.append({
+                    'tipo': 'E-Cheq',
+                    'monto': m_echeq,
+                    'nro': str(cdata.get('nro_echeq') or cdata.get('nro_cheque') or '').strip(),
+                    'banco': str(cdata.get('banco_echeq') or cdata.get('banco') or 'A completar').strip(),
+                    'fecha_venc': str(cdata.get('fecha_venc_echeq') or cdata.get('vencimiento') or fecha_cobro).strip()
+                })
+
+        total_cheques = sum(ch['monto'] for ch in processed_cheques_input)
+        total_dinero_nuevo = m_transf + m_efectivo + m_tarjeta + total_cheques
         total_cobrado_ingresado = total_dinero_nuevo + m_saldo_favor
         
         # Build description of combined payment methods
         medios_list = []
         if m_saldo_favor > 0: medios_list.append(f"Saldo a Favor C/C: ${m_saldo_favor:,.2f}")
         if m_transf > 0: medios_list.append(f"Transferencia: ${m_transf:,.2f}")
-        if m_echeq > 0: medios_list.append(f"E-Cheq: ${m_echeq:,.2f}")
-        if m_cheque > 0: medios_list.append(f"Cheque: ${m_cheque:,.2f}")
         if m_efectivo > 0: medios_list.append(f"Efectivo: ${m_efectivo:,.2f}")
         if m_tarjeta > 0: medios_list.append(f"Tarjeta: ${m_tarjeta:,.2f}")
+        for ch in processed_cheques_input:
+            ch_tipo = ch['tipo']
+            ch_monto = ch['monto']
+            ch_nro = ch['nro']
+            ch_banco = ch['banco']
+            detalles = []
+            if ch_nro: detalles.append(f"N° {ch_nro}")
+            if ch_banco and ch_banco != 'A completar': detalles.append(ch_banco)
+            det_str = f" ({', '.join(detalles)})" if detalles else ""
+            medios_list.append(f"{ch_tipo}{det_str}: ${ch_monto:,.2f}")
         
         medio_str = " | ".join(medios_list) if medios_list else cdata.get('medio_cobro', 'Transferencia')
         cuenta_dest = cdata.get('cuenta_destino') or cdata.get('cuenta_tesoreria') or ''
-        if cuenta_dest and (m_transf > 0 or m_echeq > 0 or m_cheque > 0 or m_efectivo > 0 or m_tarjeta > 0):
+        if cuenta_dest and (m_transf > 0 or total_cheques > 0 or m_efectivo > 0 or m_tarjeta > 0):
             medio_str = f"{medio_str} - {cuenta_dest}" if cuenta_dest.lower() not in medio_str.lower() else medio_str
         
         # Fetch current record values from Supabase or Excel
@@ -2084,63 +2131,23 @@ class DataManager:
                             'obs': f"Cancelación de saldo de Factura {i_id_clean} aplicando Saldo a Favor de C/C"
                         })
 
-                    # If Cheque or E-Cheq received, insert into cheques table in Supabase
-                    is_chq_trans = ('cheque' in medio_str.lower() or 'echeq' in medio_str.lower() or 'e-cheq' in medio_str.lower())
-                    if (m_cheque <= 0 and m_echeq <= 0) and is_chq_trans:
-                        if 'echeq' in medio_str.lower() or 'e-cheq' in medio_str.lower():
-                            m_echeq = importe_final
-                        else:
-                            m_cheque = importe_final
+                    # Insert each cheque into cheques table in Supabase
+                    base_chq_id = self.supabase_service.get_next_id('cheques', 'CHQ', 'id_cheque')
+                    try:
+                        next_chq_num = int(base_chq_id.split('-')[-1])
+                    except Exception:
+                        next_chq_num = 1
 
-                    if m_cheque > 0:
-                        nro_chq = str(cdata.get('nro_cheque') or '').strip()
-                        banco_chq = str(cdata.get('banco_cheque') or cdata.get('banco') or 'A completar').strip()
-                        venc_chq = str(cdata.get('fecha_venc_cheque') or cdata.get('vencimiento') or fecha_cobro).strip()
+                    for ch in processed_cheques_input:
+                        cid = f"CHQ-{next_chq_num:06d}"
+                        next_chq_num += 1
+                        ch_tipo = ch['tipo']
+                        ch_monto = ch['monto']
+                        ch_nro = ch['nro']
+                        ch_banco = ch['banco']
+                        ch_venc = ch['fecha_venc']
                         cuit_chq = cdata.get('cuit_emisor_cheque') or cuit_final or None
-                        cid = self.supabase_service.get_next_id('cheques', 'CHQ', 'id_cheque')
-                        conn.execute(text("""
-                            INSERT INTO cheques (
-                                id_cheque, fecha_ingreso, tipo, monto, cliente_emisor,
-                                cuit_emisor, banco, nro_cheque, fecha_cobro,
-                                endosado_tenedor, estado, id_ingreso_origen, observaciones,
-                                created_at, updated_at
-                            ) VALUES (
-                                :cid, CAST(:fecha AS date), 'Cheque Físico', :monto, :cliente,
-                                :cuit, :banco, :nro, CAST(NULLIF(:venc, '') AS date),
-                                'ECONCATIVO S.A.S.', 'Disponible', :iid, :obs,
-                                NOW(), NOW()
-                            ) ON CONFLICT (id_cheque) DO NOTHING;
-                        """), {
-                            'cid': cid,
-                            'fecha': fecha_cobro,
-                            'monto': m_cheque,
-                            'cliente': cliente_final,
-                            'cuit': cuit_chq,
-                            'banco': banco_chq,
-                            'nro': nro_chq,
-                            'venc': venc_chq,
-                            'iid': i_id_clean,
-                            'obs': f"Cobro de Ingreso {i_id_clean} - {cliente_final}"
-                        })
-                        created_cheques.append({
-                            'cid': cid,
-                            'fecha': fecha_cobro,
-                            'tipo': 'Cheque Físico',
-                            'monto': m_cheque,
-                            'cliente': cliente_final,
-                            'cuit': cuit_chq,
-                            'banco': banco_chq,
-                            'nro': nro_chq,
-                            'venc': venc_chq,
-                            'iid': i_id_clean
-                        })
 
-                    if m_echeq > 0:
-                        nro_echq = str(cdata.get('nro_echeq') or cdata.get('nro_cheque') or '').strip()
-                        banco_echq = str(cdata.get('banco_echeq') or cdata.get('banco') or 'A completar').strip()
-                        venc_echq = str(cdata.get('fecha_venc_echeq') or cdata.get('vencimiento') or fecha_cobro).strip()
-                        cuit_echq = cdata.get('cuit_emisor_echeq') or cuit_final or None
-                        cid_e = self.supabase_service.get_next_id('cheques', 'CHQ', 'id_cheque')
                         conn.execute(text("""
                             INSERT INTO cheques (
                                 id_cheque, fecha_ingreso, tipo, monto, cliente_emisor,
@@ -2148,45 +2155,71 @@ class DataManager:
                                 endosado_tenedor, estado, id_ingreso_origen, observaciones,
                                 created_at, updated_at
                             ) VALUES (
-                                :cid, CAST(:fecha AS date), 'E-Cheq', :monto, :cliente,
+                                :cid, CAST(:fecha AS date), :tipo, :monto, :cliente,
                                 :cuit, :banco, :nro, CAST(NULLIF(:venc, '') AS date),
                                 'ECONCATIVO S.A.S.', 'Disponible', :iid, :obs,
                                 NOW(), NOW()
                             ) ON CONFLICT (id_cheque) DO NOTHING;
                         """), {
-                            'cid': cid_e,
+                            'cid': cid,
                             'fecha': fecha_cobro,
-                            'monto': m_echeq,
+                            'tipo': ch_tipo,
+                            'monto': ch_monto,
                             'cliente': cliente_final,
-                            'cuit': cuit_echq,
-                            'banco': banco_echq,
-                            'nro': nro_echq,
-                            'venc': venc_echq,
+                            'cuit': cuit_chq,
+                            'banco': ch_banco,
+                            'nro': ch_nro,
+                            'venc': ch_venc,
                             'iid': i_id_clean,
                             'obs': f"Cobro de Ingreso {i_id_clean} - {cliente_final}"
                         })
                         created_cheques.append({
-                            'cid': cid_e,
+                            'cid': cid,
                             'fecha': fecha_cobro,
-                            'tipo': 'E-Cheq',
-                            'monto': m_echeq,
+                            'tipo': ch_tipo,
+                            'monto': ch_monto,
                             'cliente': cliente_final,
-                            'cuit': cuit_echq,
-                            'banco': banco_echq,
-                            'nro': nro_echq,
-                            'venc': venc_echq,
+                            'cuit': cuit_chq,
+                            'banco': ch_banco,
+                            'nro': ch_nro,
+                            'venc': ch_venc,
                             'iid': i_id_clean
                         })
             except Exception as e:
                 print(f"[registrar_cobro_ingreso Supabase Error] {e}")
                 raise e
+        else:
+            for ch in processed_cheques_input:
+                created_cheques.append({
+                    'cid': None,
+                    'fecha': fecha_cobro,
+                    'tipo': ch['tipo'],
+                    'monto': ch['monto'],
+                    'cliente': cliente_final,
+                    'cuit': cuit_final or None,
+                    'banco': ch['banco'],
+                    'nro': ch['nro'],
+                    'venc': ch['fecha_venc'],
+                    'iid': i_id_clean
+                })
 
         # 2. Mirror to Excel gracefully
         try:
             ws_c = self._ensure_cheques_sheet(wb)
+            base_chq_excel = self._get_next_cheque_id(ws_c)
+            try:
+                next_excel_num = int(base_chq_excel.split('-')[-1])
+            except Exception:
+                next_excel_num = 1
+
             for ch in created_cheques:
+                cid = ch.get('cid')
+                if not cid:
+                    cid = f"CHQ-{next_excel_num:06d}"
+                    next_excel_num += 1
+                    ch['cid'] = cid
                 ws_c.append([
-                    ch['cid'], ch['fecha'], ch['tipo'], ch['monto'], ch['cliente'], ch['cuit'] or '',
+                    cid, ch['fecha'], ch['tipo'], ch['monto'], ch['cliente'], ch['cuit'] or '',
                     ch['banco'], ch['nro'], ch['venc'], 'ECONCATIVO S.A.S.', 'Disponible',
                     '', '', '', ch['iid'], f"Cobro de Ingreso {ch['iid']} - {ch['cliente']}"
                 ])
@@ -2240,10 +2273,8 @@ class DataManager:
                             for part in medio_str.split('|'):
                                 if ':' in part:
                                     k, v = part.split(':', 1)
-                                    try:
-                                        medios_dict[k.strip()] = float(v.replace('$', '').replace('.', '').replace(',', '.').strip())
-                                    except:
-                                        medios_dict[k.strip()] = 0.0
+                                    v_clean = v.split(' - ')[0] if ' - ' in v else v
+                                    medios_dict[k.strip()] = self._to_float(v_clean)
                         elif medio_str:
                             medios_dict[medio_str.strip()] = float(r.get('importe_cobrado') or 0)
 
@@ -2295,10 +2326,8 @@ class DataManager:
                 for part in medio_str.split('|'):
                     if ':' in part:
                         k, v = part.split(':', 1)
-                        try:
-                            medios_dict[k.strip()] = float(v.replace('$', '').replace('.', '').replace(',', '.').strip())
-                        except:
-                            medios_dict[k.strip()] = 0.0
+                        v_clean = v.split(' - ')[0] if ' - ' in v else v
+                        medios_dict[k.strip()] = self._to_float(v_clean)
             elif medio_str:
                 medios_dict[medio_str.strip()] = float(ws_i.cell(target_row, 18).value or 0)
 
