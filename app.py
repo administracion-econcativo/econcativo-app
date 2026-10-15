@@ -1241,6 +1241,19 @@ def api_registrar_cobro_ingreso():
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
+@app.route('/api/ingresos/delete', methods=['POST'])
+def api_delete_ingreso():
+    try:
+        payload = request.json or {}
+        i_id = payload.get('id')
+        if not i_id:
+            return jsonify({"status": "error", "message": "ID de factura / ingreso requerido"}), 400
+        delete_cascade = bool(payload.get('delete_viaje_cascade', False))
+        res = db.delete_ingreso_factura(i_id, delete_viaje_cascade=delete_cascade)
+        return jsonify(res)
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
 @app.route('/api/ingresos/add', methods=['POST'])
 def api_add_ingreso():
     try:

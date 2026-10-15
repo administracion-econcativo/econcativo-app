@@ -165,6 +165,9 @@ function renderViajesTable(rows) {
                                 <i class="fa-solid fa-flag-checkered"></i> Finalizar 🏁
                             </button>
                         `)}
+                        <button onclick="confirmarEliminarViaje('${vid}')" class="inline-flex items-center gap-1 bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold px-2 py-1 rounded text-[10px] border border-rose-200 transition-all cursor-pointer whitespace-nowrap" title="Eliminar viaje">
+                            <i class="fa-solid fa-trash-can"></i>
+                        </button>
                     </div>
                 </td>
             </tr>
@@ -699,4 +702,44 @@ async function submitAdicionalViaje(e) {
         showToast("Error al agregar adicional.", "error");
     }
 }
+
+// Delete viaje and unlink associated presupuesto
+async function confirmarEliminarViaje(vid) {
+    if (!vid) return;
+    const confirmed = await showConfirmModal(
+        "Eliminar Viaje",
+        `<div class="text-left space-y-2">
+            <p class="text-sm text-slate-700">¿Estás seguro de que deseas eliminar el viaje <b>${vid}</b>?</p>
+            <p class="text-xs text-slate-500"><i class="fa-solid fa-circle-info text-blue-500 mr-1"></i>Si tenía un presupuesto asignado, el presupuesto volverá a estado 'Pendiente' para poder ser asignado nuevamente.</p>
+        </div>`,
+        {
+            iconClass: "fa-solid fa-trash-can text-rose-500 text-3xl",
+            confirmText: "Sí, Eliminar Viaje",
+            confirmBtnClass: "px-5 py-2.5 rounded-xl text-white font-bold bg-rose-600 hover:bg-rose-700 shadow-md transition-all cursor-pointer text-sm"
+        }
+    );
+    if (!confirmed) return;
+
+    showLoading("Eliminando Viaje", `Eliminando ${vid} de la base de datos...`);
+    try {
+        const res = await fetch('/api/viajes/delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: vid })
+        });
+        const json = await res.json();
+        if (json.status === 'success') {
+            if (typeof loadViajesData === 'function') await loadViajesData();
+            if (typeof loadPresupuestosData === 'function') await loadPresupuestosData();
+            showToast(json.message || `Viaje ${vid} eliminado correctamente.`);
+        } else {
+            showToast("Error al eliminar viaje: " + (json.message || 'Error desconocido'), "error");
+        }
+    } catch (err) {
+        showToast("Error de conexión al eliminar viaje.", "error");
+    } finally {
+        hideLoading();
+    }
+}
+
 

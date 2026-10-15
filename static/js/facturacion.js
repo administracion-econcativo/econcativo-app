@@ -123,6 +123,7 @@ function renderFacturacionTable(rows) {
         }
 
         const emailBtn = `<button onclick="openSendFacturaEmailModal('${iid}')" class="inline-flex items-center gap-1 bg-sky-600 hover:bg-sky-700 text-white font-bold px-2 py-1 rounded text-[11px] shadow-sm transition-all cursor-pointer" title="Enviar mail al cliente adjuntando la factura ARCA PDF desde tu computadora"><i class="fa-solid fa-envelope"></i> Email ✉️</button>`;
+        const deleteBtn = `<button onclick="confirmarEliminarFactura('${iid}')" class="inline-flex items-center gap-1 bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold px-2 py-1 rounded text-[11px] border border-rose-200 shadow-sm transition-all cursor-pointer ml-1" title="Eliminar factura y revertir movimientos"><i class="fa-solid fa-trash-can"></i></button>`;
 
         if (isNoFiscal && isTransferredToIngresos) {
             rowBgClass = 'bg-purple-50/60 hover:bg-purple-100/50 border-purple-200 opacity-90';
@@ -134,6 +135,7 @@ function renderFacturacionTable(rows) {
                 <span class="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-1 rounded" title="Transferido a la pestaña Ingresos">
                     <i class="fa-solid fa-hand-holding-dollar"></i> En Ingresos
                 </span>
+                ${deleteBtn}
             `;
         } else if (isNoFiscal) {
             rowBgClass = 'bg-purple-50/60 hover:bg-purple-100/50 border-purple-200';
@@ -145,6 +147,7 @@ function renderFacturacionTable(rows) {
                 <button onclick="marcarComoCobrado('${iid}')" class="inline-flex items-center gap-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-2.5 py-1 rounded text-[11px] shadow-sm transition-all cursor-pointer" title="Registrar Medios de Pago (Efectivo, Transferencia, Cheques)">
                     <i class="fa-solid fa-money-bill-wave"></i> Cobrado 💰
                 </button>
+                ${deleteBtn}
             `;
         } else if (isPendingBilling) {
             rowBgClass = 'bg-amber-100/90 text-amber-900 border-amber-300 font-semibold';
@@ -156,6 +159,7 @@ function renderFacturacionTable(rows) {
                 <button onclick="completarFacturacionData('${iid}')" class="inline-flex items-center gap-1 bg-amber hover:bg-amber-dark text-white font-bold px-2.5 py-1 rounded text-[11px] shadow transition-all cursor-pointer" title="Cargar Número de Factura ARCA y fecha de emisión">
                     <i class="fa-solid fa-file-invoice-dollar"></i> Completar ARCA ✍️
                 </button>
+                ${deleteBtn}
             `;
         } else if (isTransferredToIngresos) {
             rowBgClass = 'hover:bg-slate-50 border-slate-100 opacity-90';
@@ -167,6 +171,7 @@ function renderFacturacionTable(rows) {
                 <span class="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-1 rounded" title="Transferido a la pestaña Ingresos">
                     <i class="fa-solid fa-hand-holding-dollar"></i> En Ingresos
                 </span>
+                ${deleteBtn}
             `;
         } else {
             rowBgClass = 'hover:bg-slate-50 border-slate-100';
@@ -178,6 +183,7 @@ function renderFacturacionTable(rows) {
                 <button onclick="transferirAIngresos('${iid}')" class="inline-flex items-center gap-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-2.5 py-1 rounded text-[11px] shadow-sm transition-all cursor-pointer" title="Transferir a la pestaña Ingresos para registrar los medios de pago">
                     <i class="fa-solid fa-money-bill-wave"></i> Cobrado 💰
                 </button>
+                ${deleteBtn}
             `;
         }
 
@@ -307,3 +313,62 @@ async function transferirAIngresos(iid) {
         showToast("Error al transferir a Ingresos.", "error");
     }
 }
+
+// Delete invoice and reverse all associated financial/operational movements
+async function confirmarEliminarFactura(iid) {
+    if (!iid) return;
+    const messageHtml = `
+        <div class="space-y-3 text-left">
+            <p class="text-sm text-slate-700">¿Estás seguro de que deseas eliminar la factura <b>${iid}</b>?</p>
+            <div class="text-xs bg-amber-50 border border-amber-200 text-amber-900 p-3 rounded-lg space-y-1.5">
+                <div class="flex items-start gap-1.5"><i class="fa-solid fa-circle-info text-amber-600 mt-0.5"></i> <span>Se revertirán automáticamente los cobros y movimientos en tesorería / bancos.</span></div>
+                <div class="flex items-start gap-1.5"><i class="fa-solid fa-money-check text-amber-600 mt-0.5"></i> <span>Se eliminarán de cartera los cheques generados por esta factura.</span></div>
+                <div class="flex items-start gap-1.5"><i class="fa-solid fa-rotate-left text-amber-600 mt-0.5"></i> <span>Por defecto, el viaje asociado volverá a <b>Pendiente de Facturar</b> para poder corregirlo y re-facturarlo.</span></div>
+            </div>
+            <label class="flex items-start gap-2.5 p-2.5 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg text-slate-800 cursor-pointer transition text-xs select-none">
+                <input type="checkbox" id="del-viaje-cascade-chk" class="w-4 h-4 text-rose-600 rounded border-slate-300 mt-0.5">
+                <span><b>Eliminar también el Viaje y Presupuesto asociado</b></span>
+            </label>
+        </div>
+    `;
+
+    const confirmed = await showConfirmModal(
+        "Eliminar Factura",
+        messageHtml,
+        {
+            iconClass: "fa-solid fa-trash-can text-rose-500 text-3xl",
+            confirmText: "Sí, Eliminar Factura",
+            confirmBtnClass: "px-5 py-2.5 rounded-xl text-white font-bold bg-rose-600 hover:bg-rose-700 shadow-md transition-all cursor-pointer text-sm"
+        }
+    );
+    if (!confirmed) return;
+
+    const deleteCascade = !!document.getElementById('del-viaje-cascade-chk')?.checked;
+
+    showLoading("Eliminando Factura", `Eliminando ${iid} y revirtiendo movimientos...`);
+    try {
+        const res = await fetch('/api/ingresos/delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: iid, delete_viaje_cascade: deleteCascade })
+        });
+        const json = await res.json();
+        if (json.status === 'success') {
+            if (typeof loadFacturacionData === 'function') await loadFacturacionData();
+            if (typeof loadIngresosData === 'function') await loadIngresosData();
+            if (typeof loadViajesData === 'function') await loadViajesData();
+            if (typeof loadPresupuestosData === 'function') await loadPresupuestosData();
+            if (typeof loadChequesData === 'function') await loadChequesData();
+            if (typeof loadTesoreriaData === 'function') await loadTesoreriaData();
+            if (typeof loadCuentasCorrientesData === 'function') await loadCuentasCorrientesData();
+            showToast(json.message || `Factura ${iid} eliminada correctamente.`);
+        } else {
+            showToast("Error al eliminar factura: " + (json.message || 'Error desconocido'), "error");
+        }
+    } catch (err) {
+        showToast("Error de conexión al eliminar la factura.", "error");
+    } finally {
+        hideLoading();
+    }
+}
+

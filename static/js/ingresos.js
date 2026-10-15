@@ -112,6 +112,8 @@ function renderIngresosTable(rows) {
         let statusBadge = '';
         let actionBtn = '';
 
+        const deleteBtn = `<button onclick="confirmarEliminarFactura('${iid}')" class="inline-flex items-center gap-1 bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold px-2 py-1.5 rounded-lg text-xs border border-rose-200 shadow-sm transition-all cursor-pointer ml-1" title="Eliminar factura y revertir movimientos"><i class="fa-solid fa-trash-can"></i></button>`;
+
         if (isParcial) {
             rowBgClass = 'bg-sky-50/90 border-sky-200 font-semibold';
             const recBadge = reciboId && reciboId.startsWith('REC-') ? ` <span class="bg-sky-700 text-white px-1.5 py-0.5 rounded text-[9px] font-black">${reciboId}</span>` : '';
@@ -120,6 +122,7 @@ function renderIngresosTable(rows) {
                 <button onclick="marcarComoCobrado('${iid}')" class="inline-flex items-center gap-1 bg-sky-600 hover:bg-sky-700 text-white font-bold px-3 py-1.5 rounded-lg text-xs shadow transition-all cursor-pointer" title="Ingresar cobro del saldo restante (${formatARS(saldoRem)})">
                     <i class="fa-solid fa-hand-holding-dollar"></i> 💰 Cobrar Saldo
                 </button>
+                ${deleteBtn}
             `;
         } else if (!isCobrado) {
             rowBgClass = 'bg-amber-50/90 border-amber-200 font-semibold';
@@ -128,6 +131,7 @@ function renderIngresosTable(rows) {
                 <button onclick="marcarComoCobrado('${iid}')" class="inline-flex items-center gap-1 bg-amber hover:bg-amber-dark text-white font-bold px-3 py-1.5 rounded-lg text-xs shadow transition-all cursor-pointer" title="Ingresar importes y combinación de medios de pago">
                     <i class="fa-solid fa-pen-to-square"></i> ✍️ Cargar Medios de Pago
                 </button>
+                ${deleteBtn}
             `;
         } else {
             rowBgClass = 'bg-emerald-50/60 border-emerald-200';
@@ -139,6 +143,7 @@ function renderIngresosTable(rows) {
                 <a href="/api/ingresos/${iid}/recibo_pdf" target="_blank" class="inline-flex items-center gap-1 bg-red-50 hover:bg-red-100 text-red-600 font-bold px-3 py-1.5 rounded-lg text-xs border border-red-200 shadow-sm transition-all" title="Ver / Descargar Recibo Oficial de Cobro (PDF)">
                     <i class="fa-solid fa-file-pdf"></i> PDF Recibo 📄
                 </a>
+                ${deleteBtn}
             `;
         }
 

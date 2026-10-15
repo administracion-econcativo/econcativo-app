@@ -785,21 +785,56 @@ class DataManager:
         return {"status": "success", "id": p_id}
 
     def delete_presupuesto(self, p_id):
+        p_id_clean = str(p_id).strip()
         wb = self.load_wb(data_only=False)
         ws = self._ensure_presupuestos_sheet(wb)
         
         target_row = None
         assoc_viaje_id = None
         for r in range(5, ws.max_row + 1):
-            if str(ws.cell(r, 1).value or '').strip() == str(p_id).strip():
+            if str(ws.cell(r, 1).value or '').strip() == p_id_clean:
                 target_row = r
                 assoc_viaje_id = ws.cell(r, 12).value
                 break
         
-        if not target_row:
-            return {"status": "error", "message": f"Presupuesto {p_id} no encontrado."}
+        # Check in Supabase if assoc_viaje_id not found in Excel
+        if not assoc_viaje_id and self.supabase_service and self.supabase_service.is_connected():
+            from sqlalchemy import text
+            try:
+                with self.supabase_service.engine.connect() as conn:
+                    p_res = conn.execute(text("SELECT id_viaje_asociado FROM presupuestos WHERE id_presupuesto = :pid"), {'pid': p_id_clean}).fetchone()
+                    if p_res and p_res[0]:
+                        assoc_viaje_id = str(p_res[0]).strip()
+            except Exception as e:
+                print(f"[delete_presupuesto check assoc_viaje error] {e}")
 
-        ws.delete_rows(target_row)
+        # Safety: Check if associated viaje has an invoice
+        if assoc_viaje_id:
+            vid_clean = str(assoc_viaje_id).strip()
+            id_ingreso = None
+            if self.supabase_service and self.supabase_service.is_connected():
+                from sqlalchemy import text
+                try:
+                    with self.supabase_service.engine.connect() as conn:
+                        v_res = conn.execute(text("SELECT id_ingreso_factura FROM viajes WHERE id_viaje = :vid"), {'vid': vid_clean}).fetchone()
+                        if v_res and v_res[0]:
+                            id_ingreso = str(v_res[0]).strip()
+                except Exception:
+                    pass
+            if not id_ingreso and 'VIAJES' in wb.sheetnames:
+                ws_v = wb['VIAJES']
+                for rv in range(5, ws_v.max_row + 1):
+                    if str(ws_v.cell(rv, 1).value or '').strip() == vid_clean:
+                        id_ingreso = str(ws_v.cell(rv, 22).value or '').strip()
+                        break
+            if id_ingreso and id_ingreso.startswith('ING-'):
+                return {
+                    "status": "error",
+                    "message": f"No se puede eliminar el presupuesto {p_id_clean}: su viaje {vid_clean} ya tiene la factura {id_ingreso} asociada. Primero debe eliminar dicha factura desde Facturación."
+                }
+
+        if target_row:
+            ws.delete_rows(target_row)
 
         if assoc_viaje_id:
             ws_v = wb['VIAJES']
@@ -812,38 +847,76 @@ class DataManager:
                 delete_row_from_supabase(self.supabase_service.engine, 'VIAJES', assoc_viaje_id)
 
         wb.save(self.excel_path)
+        self._invalidate_cache()
 
         if self.supabase_service and self.supabase_service.is_connected():
             from supabase_sync import delete_row_from_supabase
-            delete_row_from_supabase(self.supabase_service.engine, 'PRESUPUESTOS', p_id)
+            delete_row_from_supabase(self.supabase_service.engine, 'PRESUPUESTOS', p_id_clean)
 
-        return {"status": "success", "id": p_id}
+        return {"status": "success", "id": p_id_clean, "message": f"Presupuesto {p_id_clean} eliminado correctamente."}
 
     def delete_viaje(self, viaje_id):
+        viaje_id_clean = str(viaje_id).strip()
         wb = self.load_wb(data_only=False)
         ws = wb['VIAJES']
         
         target_row = None
+        id_ingreso = None
         for r in range(5, ws.max_row + 1):
-            if str(ws.cell(r, 1).value or '').strip() == str(viaje_id).strip():
+            if str(ws.cell(r, 1).value or '').strip() == viaje_id_clean:
                 target_row = r
+                id_ingreso = str(ws.cell(r, 22).value or '').strip()
                 break
-        
-        if not target_row:
-            if self.supabase_service and self.supabase_service.is_connected():
-                from supabase_sync import delete_row_from_supabase
-                delete_row_from_supabase(self.supabase_service.engine, 'VIAJES', viaje_id)
-                return {"status": "success", "id": viaje_id}
-            return {"status": "error", "message": f"Registro {viaje_id} no encontrado."}
 
-        ws.delete_rows(target_row)
-        wb.save(self.excel_path)
+        # Check in Supabase if id_ingreso not found in Excel
+        if not id_ingreso and self.supabase_service and self.supabase_service.is_connected():
+            from sqlalchemy import text
+            try:
+                with self.supabase_service.engine.connect() as conn:
+                    v_res = conn.execute(text("SELECT id_ingreso_factura FROM viajes WHERE id_viaje = :vid"), {'vid': viaje_id_clean}).fetchone()
+                    if v_res and v_res[0]:
+                        id_ingreso = str(v_res[0]).strip()
+            except Exception as e:
+                print(f"[delete_viaje check id_ingreso error] {e}")
 
+        # Safety: Block if viaje has an invoice
+        if id_ingreso and id_ingreso.startswith('ING-'):
+            return {
+                "status": "error",
+                "message": f"El viaje {viaje_id_clean} tiene la factura {id_ingreso} asociada. Para eliminarlo, primero elimine dicha factura desde la sección Facturación."
+            }
+
+        # 1. Supabase: Unlink Presupuesto and delete Viaje
         if self.supabase_service and self.supabase_service.is_connected():
-            from supabase_sync import delete_row_from_supabase
-            delete_row_from_supabase(self.supabase_service.engine, 'VIAJES', viaje_id)
+            from sqlalchemy import text
+            try:
+                with self.supabase_service.engine.begin() as conn:
+                    conn.execute(text("""
+                        UPDATE presupuestos
+                        SET estado = 'Pendiente', id_viaje_asociado = NULL, updated_at = NOW()
+                        WHERE id_viaje_asociado = :vid
+                    """), {'vid': viaje_id_clean})
+                    conn.execute(text("DELETE FROM viajes WHERE id_viaje = :vid"), {'vid': viaje_id_clean})
+            except Exception as e:
+                print(f"[delete_viaje Supabase Error] {e}")
+                return {"status": "error", "message": f"Error al eliminar viaje en Supabase: {e}"}
 
-        return {"status": "success", "id": viaje_id}
+        # 2. Excel: Unlink Presupuesto and delete Viaje
+        if 'PRESUPUESTOS' in wb.sheetnames:
+            ws_p = wb['PRESUPUESTOS']
+            for r in range(5, ws_p.max_row + 1):
+                if str(ws_p.cell(r, 12).value or '').strip() == viaje_id_clean:
+                    ws_p.cell(r, 11, 'Pendiente')
+                    ws_p.cell(r, 12, None)
+                    break
+
+        if target_row:
+            ws.delete_rows(target_row)
+
+        wb.save(self.excel_path)
+        self._invalidate_cache()
+
+        return {"status": "success", "id": viaje_id_clean, "message": f"Viaje {viaje_id_clean} eliminado correctamente."}
 
     def _save_pdf_file(self, p_id, status_label):
         """Generates and saves the final official PDF to the Drive folder upon APROBADO or RECHAZADO."""
@@ -2247,6 +2320,231 @@ class DataManager:
             print(f"[registrar_cobro_ingreso Excel mirror warning] {excel_err}")
 
         return {"status": "success", "id": i_id_clean, "recibo_id": recibo_id, "estado": nuevo_estado, "cobrado": importe_final}
+
+    def delete_ingreso_factura(self, i_id, delete_viaje_cascade=False):
+        """
+        Deletes an invoice / income (ING-XXXXXX) and cascades/reverses all movements:
+        1. Checks related cheques (id_ingreso_origen = i_id):
+           - If any cheque is not in ('Disponible', 'DISPONIBLE', 'en cartera'), blocks deletion with informative message.
+           - Deletes cheques from Supabase and Excel sheet 'CHEQUES'.
+        2. Deletes applied customer credit from 'cuentas_corrientes' (referencia_id = i_id) in Supabase and Excel sheet 'CUENTAS CORRIENTES'.
+        3. Identifies associated viaje (viajes.id_ingreso_factura == i_id or from ingresos.observaciones regex 'VIA-\\d+'):
+           - If delete_viaje_cascade is False (default):
+             Resets viaje to 'Pendiente' (estado_facturacion = 'Pendiente', id_ingreso_factura = NULL) in Supabase and Excel.
+           - If delete_viaje_cascade is True:
+             Deletes the associated viaje (and associated presupuesto if exists) completely.
+        4. Deletes the invoice from Supabase 'ingresos' table and Excel sheet 'INGRESOS'.
+        5. Invalidates cache so Tesorería (dynamic) and all listings are updated instantly.
+        """
+        i_id_clean = str(i_id).strip()
+        if not i_id_clean:
+            return {"status": "error", "message": "ID de factura no válido."}
+
+        # 1. Fetch info about this invoice
+        inv_data = None
+        if self.supabase_service and self.supabase_service.is_connected():
+            from sqlalchemy import text
+            try:
+                with self.supabase_service.engine.connect() as conn:
+                    row = conn.execute(text("SELECT * FROM ingresos WHERE id_ingreso = :iid"), {'iid': i_id_clean}).fetchone()
+                    if row:
+                        inv_data = dict(row._mapping)
+            except Exception as e:
+                print(f"[delete_ingreso_factura Supabase fetch error] {e}")
+
+        # Excel fallback / cross-check
+        wb = self.load_wb(data_only=False)
+        ws_i = wb['INGRESOS'] if 'INGRESOS' in wb.sheetnames else None
+        target_i_row = None
+        if ws_i:
+            for r in range(5, ws_i.max_row + 1):
+                if str(ws_i.cell(r, 1).value or '').strip() == i_id_clean:
+                    target_i_row = r
+                    if not inv_data:
+                        inv_data = {
+                            'id_ingreso': i_id_clean,
+                            'cliente': ws_i.cell(r, 6).value,
+                            'observaciones': ws_i.cell(r, 28).value
+                        }
+                    break
+
+        if not inv_data and not target_i_row:
+            return {"status": "error", "message": f"Factura / Ingreso {i_id_clean} no encontrado."}
+
+        obs_text = str(inv_data.get('observaciones') or '') if inv_data else ''
+
+        # 2. Check related cheques
+        # If any cheque was already Cobrado, Entregado, etc., we cannot safely delete
+        cheques_to_delete = []
+        if self.supabase_service and self.supabase_service.is_connected():
+            from sqlalchemy import text
+            try:
+                with self.supabase_service.engine.connect() as conn:
+                    chq_rows = conn.execute(text("SELECT id_cheque, estado, monto, nro_cheque FROM cheques WHERE id_ingreso_origen = :iid"), {'iid': i_id_clean}).fetchall()
+                    for cr in chq_rows:
+                        cm = dict(cr._mapping)
+                        st = str(cm.get('estado') or '').strip().lower()
+                        if st not in ('disponible', 'en cartera'):
+                            return {
+                                "status": "error",
+                                "message": f"No se puede eliminar la factura: el cheque {cm.get('id_cheque')} (N° {cm.get('nro_cheque')}) ya no está disponible (Estado: {cm.get('estado')}). Debe revertir o anular ese uso primero."
+                            }
+                        cheques_to_delete.append(cm.get('id_cheque'))
+            except Exception as e:
+                print(f"[delete_ingreso_factura check cheques error] {e}")
+
+        if 'CHEQUES' in wb.sheetnames:
+            ws_c = wb['CHEQUES']
+            for r in range(5, ws_c.max_row + 1):
+                orig_id = str(ws_c.cell(r, 15).value or '').strip()
+                if orig_id == i_id_clean:
+                    chq_id = str(ws_c.cell(r, 1).value or '').strip()
+                    st = str(ws_c.cell(r, 11).value or '').strip().lower()
+                    if st not in ('disponible', 'en cartera'):
+                        return {
+                            "status": "error",
+                            "message": f"No se puede eliminar la factura: el cheque {chq_id} ya no está disponible (Estado: {ws_c.cell(r, 11).value}). Debe revertir o anular ese uso primero."
+                        }
+                    if chq_id not in cheques_to_delete:
+                        cheques_to_delete.append(chq_id)
+
+        # 3. Find associated Viaje (if any)
+        assoc_viaje_id = None
+        if self.supabase_service and self.supabase_service.is_connected():
+            from sqlalchemy import text
+            try:
+                with self.supabase_service.engine.connect() as conn:
+                    v_row = conn.execute(text("SELECT id_viaje FROM viajes WHERE id_ingreso_factura = :iid LIMIT 1"), {'iid': i_id_clean}).fetchone()
+                    if v_row and v_row[0]:
+                        assoc_viaje_id = str(v_row[0]).strip()
+            except Exception as e:
+                print(f"[delete_ingreso_factura find viaje error] {e}")
+
+        if not assoc_viaje_id and 'VIAJES' in wb.sheetnames:
+            ws_v = wb['VIAJES']
+            for r in range(5, ws_v.max_row + 1):
+                if str(ws_v.cell(r, 22).value or '').strip() == i_id_clean:
+                    assoc_viaje_id = str(ws_v.cell(r, 1).value or '').strip()
+                    break
+
+        if not assoc_viaje_id and obs_text:
+            match = re.search(r'\b(VIA-\d+)\b', obs_text)
+            if match:
+                assoc_viaje_id = match.group(1).strip()
+
+        # 4. Check associated Presupuesto (if assoc_viaje_id exists)
+        assoc_presupuesto_id = None
+        if assoc_viaje_id:
+            if self.supabase_service and self.supabase_service.is_connected():
+                from sqlalchemy import text
+                try:
+                    with self.supabase_service.engine.connect() as conn:
+                        p_row = conn.execute(text("SELECT id_presupuesto FROM presupuestos WHERE id_viaje_asociado = :vid LIMIT 1"), {'vid': assoc_viaje_id}).fetchone()
+                        if p_row and p_row[0]:
+                            assoc_presupuesto_id = str(p_row[0]).strip()
+                except Exception as e:
+                    print(f"[delete_ingreso_factura find presupuesto error] {e}")
+            if not assoc_presupuesto_id and 'PRESUPUESTOS' in wb.sheetnames:
+                ws_p = wb['PRESUPUESTOS']
+                for r in range(5, ws_p.max_row + 1):
+                    if str(ws_p.cell(r, 12).value or '').strip() == assoc_viaje_id:
+                        assoc_presupuesto_id = str(ws_p.cell(r, 1).value or '').strip()
+                        break
+
+        # 5. Database operations (Supabase)
+        if self.supabase_service and self.supabase_service.is_connected():
+            from sqlalchemy import text
+            try:
+                with self.supabase_service.engine.begin() as conn:
+                    # A. Delete cheques created by this invoice
+                    conn.execute(text("DELETE FROM cheques WHERE id_ingreso_origen = :iid"), {'iid': i_id_clean})
+
+                    # B. Delete applied Saldo a Favor / CC movements
+                    conn.execute(text("DELETE FROM cuentas_corrientes WHERE referencia_id = :iid"), {'iid': i_id_clean})
+
+                    # C. Handle associated Viaje and Presupuesto
+                    if assoc_viaje_id:
+                        if delete_viaje_cascade:
+                            conn.execute(text("DELETE FROM viajes WHERE id_viaje = :vid"), {'vid': assoc_viaje_id})
+                            if assoc_presupuesto_id:
+                                conn.execute(text("DELETE FROM presupuestos WHERE id_presupuesto = :pid"), {'pid': assoc_presupuesto_id})
+                        else:
+                            conn.execute(text("""
+                                UPDATE viajes SET
+                                    estado_facturacion = 'Pendiente',
+                                    id_ingreso_factura = NULL,
+                                    km_recorridos = REGEXP_REPLACE(COALESCE(km_recorridos, ''), '\\s*\\(FINALIZADO\\)', '', 'i'),
+                                    updated_at = NOW()
+                                WHERE id_viaje = :vid;
+                            """), {'vid': assoc_viaje_id})
+
+                    # D. Delete ingreso
+                    conn.execute(text("DELETE FROM ingresos WHERE id_ingreso = :iid"), {'iid': i_id_clean})
+            except Exception as e:
+                print(f"[delete_ingreso_factura Supabase error] {e}")
+                return {"status": "error", "message": f"Error al eliminar en Supabase: {e}"}
+
+        # 6. Mirror to Excel
+        try:
+            # A. Delete cheques in Excel
+            if 'CHEQUES' in wb.sheetnames:
+                ws_c = wb['CHEQUES']
+                rows_to_del_c = []
+                for r in range(5, ws_c.max_row + 1):
+                    if str(ws_c.cell(r, 15).value or '').strip() == i_id_clean:
+                        rows_to_del_c.append(r)
+                for r in reversed(rows_to_del_c):
+                    ws_c.delete_rows(r)
+
+            # B. Delete CC movements in Excel
+            if 'CUENTAS CORRIENTES' in wb.sheetnames:
+                ws_cc = wb['CUENTAS CORRIENTES']
+                rows_to_del_cc = []
+                for r in range(5, ws_cc.max_row + 1):
+                    if str(ws_cc.cell(r, 7).value or '').strip() == i_id_clean:
+                        rows_to_del_cc.append(r)
+                for r in reversed(rows_to_del_cc):
+                    ws_cc.delete_rows(r)
+
+            # C. Handle associated Viaje and Presupuesto in Excel
+            if assoc_viaje_id and 'VIAJES' in wb.sheetnames:
+                ws_v = wb['VIAJES']
+                for r in range(5, ws_v.max_row + 1):
+                    if str(ws_v.cell(r, 1).value or '').strip() == assoc_viaje_id:
+                        if delete_viaje_cascade:
+                            ws_v.delete_rows(r)
+                        else:
+                            curr_km = str(ws_v.cell(r, 14).value or '').replace('(FINALIZADO)', '').strip()
+                            ws_v.cell(r, 14, curr_km)
+                            ws_v.cell(r, 21, 'Pendiente')
+                            ws_v.cell(r, 22, '')
+                        break
+
+            if assoc_presupuesto_id and 'PRESUPUESTOS' in wb.sheetnames:
+                ws_p = wb['PRESUPUESTOS']
+                for r in range(5, ws_p.max_row + 1):
+                    if str(ws_p.cell(r, 1).value or '').strip() == assoc_presupuesto_id:
+                        if delete_viaje_cascade:
+                            ws_p.delete_rows(r)
+                        break
+
+            # D. Delete ingreso in Excel
+            if target_i_row and ws_i:
+                ws_i.delete_rows(target_i_row)
+
+            wb.save(self.excel_path)
+            self._invalidate_cache()
+        except Exception as e:
+            print(f"[delete_ingreso_factura Excel error] {e}")
+
+        msg = f"Factura {i_id_clean} eliminada correctamente. Movimientos y cheques asociados revertidos."
+        if assoc_viaje_id:
+            if delete_viaje_cascade:
+                msg += f" Se eliminó también el viaje {assoc_viaje_id} y su presupuesto."
+            else:
+                msg += f" El viaje {assoc_viaje_id} volvió a estado 'Pendiente de Facturar'."
+
+        return {"status": "success", "id": i_id_clean, "message": msg}
 
     def get_recibo_data(self, target_id):
         """Fetches all operational, billing, and payment method details for generating the PDF receipt (Supabase First)."""
