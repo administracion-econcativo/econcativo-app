@@ -19,6 +19,8 @@ async function loadMasterLists() {
         populateSelect('i-cliente', masterLists.clientes, 'Seleccionar Cliente...');
         populateSelect('select-cc-cliente', masterLists.clientes, 'Seleccionar Cliente...');
         populateSelect('pago-cc-cliente', masterLists.clientes, 'Seleccionar Cliente...');
+        populateSelect('nvd-cliente', masterLists.clientes, 'Seleccionar Cliente...');
+        populateSelect('fd-cliente', masterLists.clientes, 'Seleccionar Cliente...');
 
         // Proveedores
         populateSelect('e-proveedor', masterLists.proveedores, 'Seleccionar Proveedor...');
@@ -30,12 +32,16 @@ async function loadMasterLists() {
         populateSelect('v-unidad', masterLists.unidades, 'Seleccionar Unidad / Maquinaria...');
         populateSelect('e-unidad', masterLists.unidades, 'Seleccionar Unidad (Opcional)...');
         populateSelect('o-unidad', masterLists.unidades, 'General / Taller Central', 'General');
+        populateSelect('nvd-unidad', masterLists.unidades, 'Seleccionar Unidad / Maquinaria...');
+        populateSelect('fd-unidad', masterLists.unidades, 'Seleccionar Unidad (Opcional)...');
 
         // Empleados y Choferes
         populateSelect('v-chofer', masterLists.empleados, 'Seleccionar Chofer / Operador...');
         populateSelect('nov-empleado', masterLists.empleados, 'Seleccionar Empleado / Chofer...');
         populateSelect('filtro-nov-empleado', masterLists.empleados, 'Todos los Empleados');
         populateSelect('filter-tab-liq-empleado', masterLists.empleados, 'Todos los Empleados');
+        populateSelect('nvd-chofer', masterLists.empleados, 'Seleccionar Chofer / Operador...');
+        populateSelect('fd-chofer', masterLists.empleados, 'Seleccionar Chofer (Opcional)...');
 
         // Categorías / Rubros (Egresos, Órdenes de Compra, Proveedores)
         if (masterLists.categorias && masterLists.categorias.length > 0) {
@@ -129,7 +135,7 @@ function populateTreasurySelectsFromMaster(accounts) {
     }
 
     // Form accounts
-    ['o-cuenta-tesoreria', 'pago-cuenta-origen', 'pago-vuelto-cuenta', 'ic-cuenta-destino', 'pago-cc-cuenta-tesoreria', 'va-cuenta-tesoreria', 'nov-cuenta-id', 'e-vuelto-cuenta'].forEach(sId => {
+    ['o-cuenta-tesoreria', 'pago-cuenta-origen', 'pago-vuelto-cuenta', 'ic-cuenta-destino', 'pago-cc-cuenta-tesoreria', 'va-cuenta-tesoreria', 'nov-cuenta-id', 'e-vuelto-cuenta', 'fd-cuenta-cobro'].forEach(sId => {
         const el = document.getElementById(sId);
         if (el) {
             const curr = el.value;
@@ -1473,70 +1479,70 @@ async function switchMasterTab(masterName) {
             currentMasterUnidades = json.rows || [];
             thead.innerHTML = `
                 <tr>
-                    <th class="px-4 py-3">ID Unidad</th>
-                    <th class="px-4 py-3">Tipo</th>
-                    <th class="px-4 py-3">Dominio / Patente</th>
-                    <th class="px-4 py-3">Marca / Modelo</th>
-                    <th class="px-4 py-3">Descripción</th>
-                    <th class="px-4 py-3"><i class="fa-solid fa-shield-halved text-amber mr-1"></i>Vencimiento Seguro</th>
-                    <th class="px-4 py-3"><i class="fa-solid fa-clipboard-check text-amber mr-1"></i>Vencimiento ITV / RTO</th>
-                    <th class="px-4 py-3 text-right">Acciones</th>
+                    <th class="px-4 py-3 whitespace-nowrap">ID Unidad</th>
+                    <th class="px-4 py-3 whitespace-nowrap">Tipo</th>
+                    <th class="px-4 py-3 whitespace-nowrap">Dominio / Patente</th>
+                    <th class="px-4 py-3 whitespace-nowrap">Marca / Modelo</th>
+                    <th class="px-4 py-3 whitespace-nowrap">Descripción</th>
+                    <th class="px-4 py-3 whitespace-nowrap"><i class="fa-solid fa-shield-halved text-amber mr-1"></i>Vencimiento Seguro</th>
+                    <th class="px-4 py-3 whitespace-nowrap"><i class="fa-solid fa-clipboard-check text-amber mr-1"></i>Vencimiento ITV / RTO</th>
+                    <th class="px-4 py-3 text-right whitespace-nowrap">Acciones</th>
                 </tr>
             `;
         } else if (masterName === 'empleados') {
             currentMasterEmpleados = json.rows || [];
             thead.innerHTML = `
                 <tr>
-                    <th class="px-4 py-3">ID Personal</th>
-                    <th class="px-4 py-3">Empleado</th>
-                    <th class="px-4 py-3 text-center">Estado</th>
-                    <th class="px-4 py-3">Puesto / Cargo</th>
-                    <th class="px-4 py-3">Sueldo Fijo ($)</th>
-                    <th class="px-4 py-3">% Com. Granel</th>
-                    <th class="px-4 py-3">Teléfono / Contacto</th>
-                    <th class="px-4 py-3">Datos Bancarios</th>
-                    <th class="px-4 py-3"><i class="fa-solid fa-id-card text-amber mr-1"></i>Venc. Licencia</th>
-                    <th class="px-4 py-3 text-right">Acciones</th>
+                    <th class="px-4 py-3 whitespace-nowrap">ID Personal</th>
+                    <th class="px-4 py-3 whitespace-nowrap">Empleado</th>
+                    <th class="px-4 py-3 text-center whitespace-nowrap">Estado</th>
+                    <th class="px-4 py-3 whitespace-nowrap">Puesto / Cargo</th>
+                    <th class="px-4 py-3 whitespace-nowrap">Sueldo Fijo ($)</th>
+                    <th class="px-4 py-3 whitespace-nowrap">% Com. Granel</th>
+                    <th class="px-4 py-3 whitespace-nowrap">Teléfono / Contacto</th>
+                    <th class="px-4 py-3 whitespace-nowrap">Datos Bancarios</th>
+                    <th class="px-4 py-3 whitespace-nowrap"><i class="fa-solid fa-id-card text-amber mr-1"></i>Venc. Licencia</th>
+                    <th class="px-4 py-3 text-right whitespace-nowrap">Acciones</th>
                 </tr>
             `;
         } else if (masterName === 'clientes') {
             currentMasterClientes = json.rows || [];
             thead.innerHTML = `
                 <tr>
-                    <th class="px-4 py-3">ID Cliente</th>
-                    <th class="px-4 py-3">Razón Social / Nombre</th>
-                    <th class="px-4 py-3">CUIT / CUIL</th>
-                    <th class="px-4 py-3"><i class="fa-solid fa-envelope text-amber mr-1"></i>Email / Correo</th>
-                    <th class="px-4 py-3">Teléfono</th>
-                    <th class="px-4 py-3">Condición IVA</th>
-                    <th class="px-4 py-3">Domicilio</th>
-                    <th class="px-4 py-3 text-right">Acciones</th>
+                    <th class="px-4 py-3 whitespace-nowrap">ID Cliente</th>
+                    <th class="px-4 py-3 whitespace-nowrap">Razón Social / Nombre</th>
+                    <th class="px-4 py-3 whitespace-nowrap">CUIT / CUIL</th>
+                    <th class="px-4 py-3 whitespace-nowrap"><i class="fa-solid fa-envelope text-amber mr-1"></i>Email / Correo</th>
+                    <th class="px-4 py-3 whitespace-nowrap">Teléfono</th>
+                    <th class="px-4 py-3 whitespace-nowrap">Condición IVA</th>
+                    <th class="px-4 py-3 whitespace-nowrap">Domicilio</th>
+                    <th class="px-4 py-3 text-right whitespace-nowrap">Acciones</th>
                 </tr>
             `;
         } else if (masterName === 'proveedores') {
             currentMasterProveedores = json.rows || [];
             thead.innerHTML = `
                 <tr>
-                    <th class="px-4 py-3">ID Proveedor</th>
-                    <th class="px-4 py-3">Razón Social / Nombre</th>
-                    <th class="px-4 py-3">CUIT</th>
-                    <th class="px-4 py-3"><i class="fa-solid fa-building-columns text-amber mr-1"></i>CBU / ALIAS</th>
-                    <th class="px-4 py-3">Rubro / Insumo</th>
-                    <th class="px-4 py-3">Contacto (Tel / Email)</th>
-                    <th class="px-4 py-3 text-right">Acciones / Reportes</th>
+                    <th class="px-4 py-3 whitespace-nowrap">ID Proveedor</th>
+                    <th class="px-4 py-3 whitespace-nowrap">Razón Social / Nombre</th>
+                    <th class="px-4 py-3 whitespace-nowrap">CUIT</th>
+                    <th class="px-4 py-3 whitespace-nowrap"><i class="fa-solid fa-building-columns text-amber mr-1"></i>CBU / ALIAS</th>
+                    <th class="px-4 py-3 whitespace-nowrap">Rubro / Insumo</th>
+                    <th class="px-4 py-3 whitespace-nowrap">Contacto (Tel / Email)</th>
+                    <th class="px-4 py-3 text-right whitespace-nowrap">Acciones / Reportes</th>
                 </tr>
             `;
         } else if (masterName === 'usuarios') {
             currentMasterUsuarios = json.rows || [];
             thead.innerHTML = `
                 <tr>
-                    <th class="px-4 py-3">ID Usuario</th>
-                    <th class="px-4 py-3">Nombre Completo</th>
-                    <th class="px-4 py-3">Usuario (Login)</th>
-                    <th class="px-4 py-3">Rol</th>
-                    <th class="px-4 py-3">Estado</th>
-                    <th class="px-4 py-3">Último Acceso</th>
-                    <th class="px-4 py-3 text-right">Acciones</th>
+                    <th class="px-4 py-3 whitespace-nowrap">ID Usuario</th>
+                    <th class="px-4 py-3 whitespace-nowrap">Nombre Completo</th>
+                    <th class="px-4 py-3 whitespace-nowrap">Usuario (Login)</th>
+                    <th class="px-4 py-3 whitespace-nowrap">Rol</th>
+                    <th class="px-4 py-3 whitespace-nowrap">Estado</th>
+                    <th class="px-4 py-3 whitespace-nowrap">Último Acceso</th>
+                    <th class="px-4 py-3 text-right whitespace-nowrap">Acciones</th>
                 </tr>
             `;
         } else {
@@ -1565,9 +1571,9 @@ function renderMasterRowUnidad(r) {
     return `
         <tr class="hover:bg-slate-50 border-b border-slate-100 transition-all text-xs">
             <td class="px-4 py-3 font-bold text-navy whitespace-nowrap">${uid}</td>
-            <td class="px-4 py-3 font-medium">${tipo}</td>
+            <td class="px-4 py-3 font-medium whitespace-nowrap">${tipo}</td>
             <td class="px-4 py-3 font-bold text-slate-800 whitespace-nowrap">${patente}</td>
-            <td class="px-4 py-3 font-medium">${marcaMod}</td>
+            <td class="px-4 py-3 font-medium whitespace-nowrap">${marcaMod}</td>
             <td class="px-4 py-3 text-slate-600">${desc}</td>
             <td class="px-4 py-3 whitespace-nowrap">${seguroBadge}</td>
             <td class="px-4 py-3 whitespace-nowrap">${rtoBadge}</td>
@@ -1598,7 +1604,7 @@ function renderMasterRowEmpleado(r) {
     const cbuAlias = getRowProp(r, ['Alias CBU', 'Alias', 'alias_cbu']) || getRowProp(r, ['CBU', 'cbu']) || '-';
     const licBadge = formatEmpleadoLicenciasBadges(r);
 
-    const pctBadge = pctCom > 0 ? `<span class="bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded text-[11px] border border-emerald-200">${pctCom}%</span>` : `<span class="text-slate-400">0%</span>`;
+    const pctBadge = pctCom > 0 ? `<span class="inline-flex items-center bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded text-[11px] border border-emerald-200 whitespace-nowrap leading-none">${pctCom}%</span>` : `<span class="text-slate-400">0%</span>`;
 
     const rawEst = String(getRowProp(r, ['Estado', 'estado']) || '').trim().toLowerCase();
     const isActivo = !rawEst || rawEst === 'activo';
@@ -1617,13 +1623,15 @@ function renderMasterRowEmpleado(r) {
     return `
         <tr class="hover:bg-slate-50 border-b border-slate-100 transition-all text-xs">
             <td class="px-4 py-3 font-bold text-navy whitespace-nowrap">${eid}</td>
-            <td class="px-4 py-3 font-bold text-slate-800">${nombre}</td>
+            <td class="px-4 py-3 font-bold text-slate-800 whitespace-nowrap">${nombre}</td>
             <td class="px-4 py-3 text-center whitespace-nowrap">${estBadge}</td>
-            <td class="px-4 py-3 font-semibold text-slate-700"><span class="bg-blue-50 text-navy px-2 py-0.5 rounded border border-blue-100">${puesto}</span></td>
-            <td class="px-4 py-3 font-semibold text-slate-800">${sFijo > 0 ? formatARS(sFijo) : '-'}</td>
+            <td class="px-4 py-3 font-semibold text-slate-700 whitespace-nowrap">
+                <span class="inline-flex items-center bg-blue-50 text-navy px-2.5 py-1 rounded-md border border-blue-100 text-xs font-semibold whitespace-nowrap leading-none">${puesto}</span>
+            </td>
+            <td class="px-4 py-3 font-semibold text-slate-800 whitespace-nowrap">${sFijo > 0 ? formatARS(sFijo) : '-'}</td>
             <td class="px-4 py-3 whitespace-nowrap">${pctBadge}</td>
-            <td class="px-4 py-3 text-slate-600">${tel}</td>
-            <td class="px-4 py-3 font-mono text-[11px] text-slate-700">${cbuAlias}</td>
+            <td class="px-4 py-3 text-slate-600 whitespace-nowrap">${tel}</td>
+            <td class="px-4 py-3 font-mono text-[11px] text-slate-700 whitespace-nowrap">${cbuAlias}</td>
             <td class="px-4 py-3 whitespace-nowrap">${licBadge}</td>
             <td class="px-4 py-3 text-right whitespace-nowrap">
                 <div class="inline-flex items-center justify-end gap-1.5">
@@ -1652,12 +1660,12 @@ function renderMasterRowCliente(r) {
     return `
         <tr class="hover:bg-slate-50 border-b border-slate-100 transition-all text-xs">
             <td class="px-4 py-3 font-bold text-navy whitespace-nowrap">${cid}</td>
-            <td class="px-4 py-3 font-bold text-slate-800">${nombre}</td>
+            <td class="px-4 py-3 font-bold text-slate-800 whitespace-nowrap">${nombre}</td>
             <td class="px-4 py-3 font-bold text-slate-700 whitespace-nowrap">${cuit}</td>
             <td class="px-4 py-3 text-slate-600 font-medium whitespace-nowrap">${email !== '-' ? `<a href="mailto:${email}" class="text-navy hover:underline font-semibold"><i class="fa-solid fa-envelope text-amber mr-1"></i>${email}</a>` : '-'}</td>
             <td class="px-4 py-3 text-slate-600 whitespace-nowrap">${tel}</td>
-            <td class="px-4 py-3 font-medium text-slate-700">${iva}</td>
-            <td class="px-4 py-3 text-slate-600">${dom}</td>
+            <td class="px-4 py-3 font-medium text-slate-700 whitespace-nowrap">${iva}</td>
+            <td class="px-4 py-3 text-slate-600 min-w-[150px]">${dom}</td>
             <td class="px-4 py-3 text-right whitespace-nowrap">
                 <div class="inline-flex items-center justify-end gap-1.5">
                     <button onclick="editCliente('${cid}')" class="inline-flex items-center gap-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-2 py-1 rounded text-xs transition-all cursor-pointer" title="Editar cliente">
@@ -1694,11 +1702,11 @@ function renderMasterRowProveedor(r) {
     return `
         <tr class="hover:bg-slate-50 border-b border-slate-100 transition-all text-xs">
             <td class="px-4 py-3 font-bold text-navy whitespace-nowrap">${pid}</td>
-            <td class="px-4 py-3 font-bold text-slate-800">${nombre}</td>
+            <td class="px-4 py-3 font-bold text-slate-800 whitespace-nowrap">${nombre}</td>
             <td class="px-4 py-3 font-bold text-slate-700 whitespace-nowrap">${cuit}</td>
             <td class="px-4 py-3 whitespace-nowrap">${cbuDisplay}</td>
-            <td class="px-4 py-3 font-semibold text-slate-700 whitespace-nowrap"><span class="bg-slate-100 text-slate-800 px-2 py-0.5 rounded border border-slate-200">${rubro}</span></td>
-            <td class="px-4 py-3 text-slate-600">${contactoStr}</td>
+            <td class="px-4 py-3 font-semibold text-slate-700 whitespace-nowrap"><span class="inline-flex items-center bg-slate-100 text-slate-800 px-2.5 py-1 rounded-md border border-slate-200 text-xs font-semibold whitespace-nowrap leading-none">${rubro}</span></td>
+            <td class="px-4 py-3 text-slate-600 whitespace-nowrap">${contactoStr}</td>
             <td class="px-4 py-3 text-right whitespace-nowrap">
                 <div class="inline-flex items-center justify-end gap-1.5">
                     <button onclick="openResumenProveedorModal('${safeNombre}')" class="inline-flex items-center gap-1 bg-amber/10 hover:bg-amber/20 text-amber-dark font-bold px-2.5 py-1 rounded text-xs border border-amber/30 transition-all cursor-pointer shadow-sm" title="Descargar Resumen PDF del Proveedor">
@@ -1743,8 +1751,8 @@ function renderMasterRowUsuario(r) {
     return `
         <tr class="hover:bg-slate-50 border-b border-slate-100 transition-all text-xs">
             <td class="px-4 py-3 font-bold text-navy whitespace-nowrap">${uid}</td>
-            <td class="px-4 py-3 font-bold text-slate-800">${nombre}</td>
-            <td class="px-4 py-3 font-mono font-bold text-slate-600">@${uname}</td>
+            <td class="px-4 py-3 font-bold text-slate-800 whitespace-nowrap">${nombre}</td>
+            <td class="px-4 py-3 font-mono font-bold text-slate-600 whitespace-nowrap">@${uname}</td>
             <td class="px-4 py-3 whitespace-nowrap">${rolBadge}</td>
             <td class="px-4 py-3 whitespace-nowrap">${estadoBadge}</td>
             <td class="px-4 py-3 text-slate-500 whitespace-nowrap">${ultAcceso}</td>

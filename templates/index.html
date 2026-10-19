@@ -503,6 +503,9 @@
                     <p class="text-sm text-slate-500">Historial completo de Facturas ARCA y transferencia a la Pestaña Ingresos</p>
                 </div>
                 <div class="flex items-center gap-2 flex-wrap">
+                    <button type="button" onclick="openNuevaFacturaDirectaModal()" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-4 py-2.5 rounded-xl shadow-sm transition-all flex items-center gap-2 text-xs cursor-pointer">
+                        <i class="fa-solid fa-file-circle-plus text-white"></i> Cargar Factura Directa / Histórica
+                    </button>
                     <button onclick="openConfigSMTPModal()" class="bg-amber-50 hover:bg-amber-100 text-amber-900 font-bold px-4 py-2.5 rounded-xl border border-amber-200 shadow-sm transition-all flex items-center gap-2 text-xs cursor-pointer" title="Configurar correo Gmail y número de Administración">
                         <i class="fa-solid fa-gear text-amber-600"></i> Configurar Email / Gmail
                     </button>
@@ -1696,7 +1699,7 @@
                         </label>
                         <div class="flex items-center gap-2">
                             <button type="button" onclick="openNuevoEmpleadoModal()" class="text-amber-800 hover:text-amber-950 font-bold text-[11px] underline flex items-center gap-1 cursor-pointer" title="Crear un nuevo chofer / empleado en la base de datos">
-                                <i class="fa-solid fa-user-plus"></i> + Nuevo Chofer
+                                <i class="fa-solid fa-user-plus"></i> Nuevo Chofer
                             </button>
                             <button type="button" onclick="addViajeChoferRow()" class="bg-amber hover:bg-amber-dark text-white font-bold px-2.5 py-1 rounded text-[11px] shadow transition-all flex items-center gap-1 cursor-pointer">
                                 <i class="fa-solid fa-plus mr-1"></i> Agregar Chofer
@@ -1712,7 +1715,7 @@
                 <div class="col-span-2 bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
                     <div class="flex items-center justify-between">
                         <label id="lbl-unidad" class="font-bold text-slate-700 text-xs flex items-center gap-1.5">
-                            <i class="fa-solid fa-truck-moving text-amber"></i> Unidad(es) / Vehículo(s) / Maquinaria Asignada *
+                            <i class="fa-solid fa-truck-moving text-amber"></i> Unidad(es) / Vehículo(s) / Maquinaria
                         </label>
                         <button type="button" onclick="addViajeUnidadRow()" class="bg-amber hover:bg-amber-dark text-white font-bold px-2.5 py-1 rounded text-[11px] shadow transition-all flex items-center gap-1 cursor-pointer">
                             <i class="fa-solid fa-plus mr-1"></i> Agregar Unidad
@@ -2511,6 +2514,210 @@
                 <div class="col-span-2 flex justify-end gap-3 pt-3 border-t border-slate-100">
                     <button type="button" onclick="closeModal('modal-ingreso')" class="px-4 py-2 font-bold text-slate-500">Cancelar</button>
                     <button type="submit" class="bg-navy hover:bg-navy-dark text-white font-bold px-6 py-2 rounded-xl shadow cursor-pointer">Guardar Datos de Factura</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal: Cargar Factura Directa / Histórica -->
+    <div id="modal-factura-directa" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-2xl max-w-2xl w-full p-6 space-y-4 max-h-[92vh] overflow-y-auto">
+            <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+                <div>
+                    <h3 class="text-base font-bold text-navy flex items-center gap-2">
+                        <i class="fa-solid fa-file-invoice-dollar text-emerald-600"></i> Cargar Factura Directa / Histórica
+                    </h3>
+                    <p class="text-xs text-slate-500 mt-0.5">Carga de comprobantes ARCA previos o directos sin cotización previa.</p>
+                </div>
+                <button type="button" onclick="closeModal('modal-factura-directa')" class="text-slate-400 hover:text-slate-600 text-xl font-bold cursor-pointer">&times;</button>
+            </div>
+
+            <form id="form-factura-directa" onsubmit="submitNuevaFacturaDirecta(event)" class="space-y-4 text-xs">
+                <!-- Bloque 1: Datos Fiscales ARCA -->
+                <div class="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
+                    <h4 class="font-bold text-slate-800 text-xs flex items-center gap-1.5 uppercase tracking-wider">
+                        <i class="fa-solid fa-stamp text-amber"></i> Datos Fiscales del Comprobante
+                    </h4>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div class="sm:col-span-2">
+                            <div class="flex items-center justify-between mb-1">
+                                <label class="font-semibold text-slate-700">Cliente *</label>
+                                <button type="button" onclick="openModal('modal-cliente')" class="text-[11px] text-navy hover:underline font-bold">
+                                    <i class="fa-solid fa-plus"></i> Nuevo Cliente
+                                </button>
+                            </div>
+                            <select id="fd-cliente" required class="w-full p-2.5 bg-white border border-slate-200 rounded-lg font-bold text-slate-800 outline-none focus:ring-2 focus:ring-navy">
+                                <!-- Populated from masterLists.clientes -->
+                            </select>
+                        </div>
+
+                        <div>
+                            <label class="font-semibold text-slate-700">Tipo de Comprobante *</label>
+                            <select id="fd-tipo" required class="w-full mt-1 p-2.5 bg-white border border-slate-200 rounded-lg font-medium outline-none focus:ring-2 focus:ring-navy">
+                                <option value="Factura A" selected>Factura A</option>
+                                <option value="Factura B">Factura B</option>
+                                <option value="Factura C">Factura C</option>
+                                <option value="Factura M">Factura M</option>
+                                <option value="Comprobante Interno (No Fiscal)">Comprobante Interno (No Fiscal)</option>
+                            </select>
+                        </div>
+
+                        <div>
+                            <label class="font-semibold text-slate-700">N° Factura ARCA *</label>
+                            <input type="text" id="fd-nro" required placeholder="Ej: 0001-00012345" class="w-full mt-1 p-2.5 bg-white border border-slate-200 rounded-lg font-medium outline-none focus:ring-2 focus:ring-navy uppercase">
+                        </div>
+
+                        <div>
+                            <label class="font-semibold text-slate-700">Fecha de Emisión *</label>
+                            <input type="date" id="fd-fecha" required class="w-full mt-1 p-2.5 bg-white border border-slate-200 rounded-lg font-medium outline-none focus:ring-2 focus:ring-navy">
+                        </div>
+
+                        <div>
+                            <label class="font-semibold text-slate-700">Actividad / Concepto Facturado</label>
+                            <input type="text" id="fd-actividad" placeholder="Ej: Transporte de Cereal / Servicio Flete" class="w-full mt-1 p-2.5 bg-white border border-slate-200 rounded-lg font-medium outline-none focus:ring-2 focus:ring-navy">
+                        </div>
+
+                        <div>
+                            <label class="font-semibold text-slate-700">Importe Neto Gravado ($) *</label>
+                            <input type="number" step="0.01" id="fd-neto" oninput="calcFacturaDirectaTotal()" required placeholder="0.00" class="w-full mt-1 p-2.5 bg-white border border-slate-200 rounded-lg font-bold outline-none focus:ring-2 focus:ring-navy">
+                        </div>
+
+                        <div>
+                            <label class="font-semibold text-slate-700">Alícuota IVA (%)</label>
+                            <select id="fd-iva-pct" onchange="calcFacturaDirectaTotal()" class="w-full mt-1 p-2.5 bg-white border border-slate-200 rounded-lg font-medium outline-none focus:ring-2 focus:ring-navy">
+                                <option value="21" selected>21%</option>
+                                <option value="10.5">10.5%</option>
+                                <option value="0">0% (Exento)</option>
+                            </select>
+                        </div>
+
+                        <div class="sm:col-span-2 bg-emerald-50 p-3 rounded-lg border border-emerald-200 flex justify-between items-center font-bold text-emerald-950">
+                            <div>
+                                <span class="text-xs">IVA: <b id="fd-iva-calc">$0.00</b></span>
+                            </div>
+                            <div class="text-right">
+                                <span class="text-xs text-slate-600 mr-2">Total Factura:</span>
+                                <span id="fd-total-calc" class="text-base text-emerald-900 font-black">$0.00</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Bloque 2: Registro Operativo Opcional (Viaje / Chofer) -->
+                <div class="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
+                    <div class="flex items-center justify-between">
+                        <label class="flex items-center gap-2 cursor-pointer font-bold text-slate-800 text-xs">
+                            <input type="checkbox" id="fd-crear-viaje" onchange="toggleFacturaDirectaViajeSection()" class="rounded text-navy focus:ring-navy w-4 h-4">
+                            <span><i class="fa-solid fa-truck-moving text-amber mr-1"></i> ¿Crear también el registro de Viaje / Chofer para esta factura?</span>
+                        </label>
+                    </div>
+                    <p class="text-[11px] text-slate-500">Activa esta opción para que la factura quede vinculada a un chofer y unidad específica (útil para computar en la liquidación de sueldo y viajes realizados).</p>
+
+                    <div id="fd-viaje-section" class="hidden grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-slate-200">
+                        <div>
+                            <div class="flex items-center justify-between mb-1">
+                                <label class="font-semibold text-slate-700">Chofer Asignado</label>
+                                <button type="button" onclick="openNuevoEmpleadoModal()" class="text-[11px] text-amber-800 hover:underline font-bold">
+                                    <i class="fa-solid fa-plus"></i> Nuevo Chofer
+                                </button>
+                            </div>
+                            <select id="fd-chofer" class="w-full p-2.5 bg-white border border-slate-200 rounded-lg font-medium outline-none focus:ring-2 focus:ring-navy">
+                                <!-- Populated from masterLists.empleados -->
+                            </select>
+                        </div>
+
+                        <div>
+                            <div class="flex items-center justify-between mb-1">
+                                <label class="font-semibold text-slate-700">Unidad / Camión</label>
+                                <button type="button" onclick="openModal('modal-unidad')" class="text-[11px] text-amber-800 hover:underline font-bold">
+                                    <i class="fa-solid fa-plus"></i> Nueva Unidad
+                                </button>
+                            </div>
+                            <select id="fd-unidad" class="w-full p-2.5 bg-white border border-slate-200 rounded-lg font-medium outline-none focus:ring-2 focus:ring-navy">
+                                <!-- Populated from masterLists.unidades -->
+                            </select>
+                        </div>
+
+                        <div>
+                            <label class="font-semibold text-slate-700">Origen</label>
+                            <input type="text" id="fd-origen" placeholder="Ej: Oncativo" class="w-full mt-1 p-2 bg-white border border-slate-200 rounded-lg font-medium outline-none focus:ring-2 focus:ring-navy">
+                        </div>
+
+                        <div>
+                            <label class="font-semibold text-slate-700">Destino</label>
+                            <input type="text" id="fd-destino" placeholder="Ej: Rosario" class="w-full mt-1 p-2 bg-white border border-slate-200 rounded-lg font-medium outline-none focus:ring-2 focus:ring-navy">
+                        </div>
+
+                        <div>
+                            <label class="font-semibold text-slate-700">N° Remito / CPE</label>
+                            <input type="text" id="fd-remito" placeholder="Ej: Remito 00124 / CPE" class="w-full mt-1 p-2 bg-white border border-slate-200 rounded-lg font-medium outline-none focus:ring-2 focus:ring-navy">
+                        </div>
+
+                        <div>
+                            <label class="font-semibold text-slate-700">Km / Horas Realizadas</label>
+                            <input type="text" id="fd-km" placeholder="Ej: 450 km" class="w-full mt-1 p-2 bg-white border border-slate-200 rounded-lg font-medium outline-none focus:ring-2 focus:ring-navy">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Bloque 3: Estado de Cobro & Protección de Tesorería -->
+                <div class="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
+                    <h4 class="font-bold text-slate-800 text-xs flex items-center gap-1.5 uppercase tracking-wider">
+                        <i class="fa-solid fa-hand-holding-dollar text-emerald-600"></i> Estado de Cobro y Tesorería
+                    </h4>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div class="sm:col-span-2">
+                            <label class="font-semibold text-slate-700">Estado del Cobro *</label>
+                            <select id="fd-estado-cobro" onchange="toggleFacturaDirectaCobroSection()" class="w-full mt-1 p-2.5 bg-white border border-slate-200 rounded-lg font-bold outline-none focus:ring-2 focus:ring-navy">
+                                <option value="PENDIENTE" selected>🟡 Pendiente de Cobro (A cobrar por el cliente)</option>
+                                <option value="COBRADO">🟢 Ya Cobrada (Factura Histórica / Cobrada con anterioridad)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Sub-bloque Cobrado -->
+                    <div id="fd-cobro-section" class="hidden space-y-3 pt-2 border-t border-slate-200">
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div>
+                                <label class="font-semibold text-slate-700">Fecha en que se Cobró *</label>
+                                <input type="date" id="fd-fecha-cobro" class="w-full mt-1 p-2.5 bg-white border border-slate-200 rounded-lg font-medium outline-none focus:ring-2 focus:ring-navy">
+                            </div>
+                            <div>
+                                <label class="font-semibold text-slate-700">Cuenta de Tesorería / Medio</label>
+                                <select id="fd-cuenta-cobro" class="w-full mt-1 p-2.5 bg-white border border-slate-200 rounded-lg font-medium outline-none focus:ring-2 focus:ring-navy">
+                                    <!-- Populated from masterLists.cuentas_tesoreria -->
+                                </select>
+                            </div>
+                        </div>
+
+                        <!-- Checkbox y Alerta de Protección de Tesorería -->
+                        <div class="bg-amber-50 border border-amber-300 rounded-xl p-3 text-xs text-amber-950 space-y-2">
+                            <div class="flex items-center gap-2 font-bold text-amber-900">
+                                <i class="fa-solid fa-shield-halved text-amber-600 text-sm"></i> Protección del Saldo Inicial de Tesorería
+                            </div>
+                            <label class="flex items-start gap-2.5 cursor-pointer font-medium text-slate-800">
+                                <input type="checkbox" id="fd-pre-saldo-chk" checked class="mt-0.5 rounded text-navy focus:ring-navy w-4 h-4">
+                                <span class="leading-relaxed">
+                                    <b>Cobrada antes del Saldo Inicial cargado en Tesorería.</b><br>
+                                    <span class="text-[11px] text-slate-600">Al mantener tildada esta casilla, el importe <b>NO se sumará al saldo actual de las cuentas bancarias o cajas</b>, evitando duplicar los fondos que ya fueron cargados en el saldo inicial de hoy.</span>
+                                </span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Observaciones -->
+                <div>
+                    <label class="font-semibold text-slate-700">Observaciones Generales</label>
+                    <input type="text" id="fd-obs" placeholder="Ej: Factura anterior cargada para historial..." class="w-full mt-1 p-2.5 bg-slate-50 border border-slate-200 rounded-lg font-medium outline-none focus:ring-2 focus:ring-navy">
+                </div>
+
+                <div class="flex justify-end gap-3 pt-3 border-t border-slate-100">
+                    <button type="button" onclick="closeModal('modal-factura-directa')" class="px-4 py-2 font-bold text-slate-500 hover:text-slate-700 cursor-pointer">Cancelar</button>
+                    <button type="submit" id="btn-save-factura-directa" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-6 py-2.5 rounded-xl shadow transition-all cursor-pointer flex items-center gap-2">
+                        <i class="fa-solid fa-check"></i> Guardar Factura Directa
+                    </button>
                 </div>
             </form>
         </div>
@@ -4204,10 +4411,10 @@
             <form id="form-emitir-cheque-propio" onsubmit="submitEmitirChequePropio(event)" class="space-y-3 text-xs">
                 <div class="grid grid-cols-2 gap-3">
                     <div>
-                        <div class="flex justify-between items-center mb-1">
-                            <label class="font-semibold text-slate-700">Banco Emisor (Cuenta Cte) *</label>
-                            <button type="button" onclick="promptAgregarNuevoBanco('chqp-banco')" class="text-[11px] font-bold text-amber-700 hover:text-amber-900 underline flex items-center gap-1 cursor-pointer" title="Registrar un nuevo banco en Tesorería">
-                                <i class="fa-solid fa-plus-circle"></i> + Nuevo Banco
+                        <div class="flex justify-between items-center mb-1 gap-1">
+                            <label class="font-semibold text-slate-700 truncate">Banco Emisor *</label>
+                            <button type="button" onclick="promptAgregarNuevoBanco('chqp-banco')" class="text-[11px] font-bold text-amber-700 hover:text-amber-900 underline flex items-center gap-1 cursor-pointer shrink-0 whitespace-nowrap" title="Registrar nuevo banco">
+                                <i class="fa-solid fa-plus-circle"></i> Nuevo Banco
                             </button>
                         </div>
                         <select id="chqp-banco" required class="w-full mt-1 p-2.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-slate-800">
@@ -4215,7 +4422,9 @@
                         </select>
                     </div>
                     <div>
-                        <label class="font-semibold text-slate-700">Tipo de Cheque *</label>
+                        <div class="flex items-center mb-1">
+                            <label class="font-semibold text-slate-700">Tipo de Cheque *</label>
+                        </div>
                         <select id="chqp-tipo" required class="w-full mt-1 p-2.5 bg-slate-50 border border-slate-200 rounded-lg font-semibold text-slate-800">
                             <option value="Cheque Físico" selected>Cheque Físico</option>
                             <option value="E-Cheq">E-Cheq (Digital)</option>
@@ -4430,10 +4639,10 @@
     <!-- ECONCATIVO Modular Application Scripts -->
     <script src="/static/js/core.js?v=supabase_v35"></script>
     <script src="/static/js/dashboard.js?v=supabase_v35"></script>
-    <script src="/static/js/maestros.js?v=supabase_v35"></script>
+    <script src="/static/js/maestros.js?v=supabase_v40"></script>
     <script src="/static/js/presupuestos.js?v=supabase_v35"></script>
-    <script src="/static/js/viajes.js?v=supabase_v37"></script>
-    <script src="/static/js/facturacion.js?v=supabase_v38"></script>
+    <script src="/static/js/viajes.js?v=supabase_v42"></script>
+    <script src="/static/js/facturacion.js?v=supabase_v40"></script>
     <script src="/static/js/ingresos.js?v=supabase_v37"></script>
     <script src="/static/js/egresos.js?v=supabase_v35"></script>
     <script src="/static/js/ordenes_compra.js?v=supabase_v35"></script>

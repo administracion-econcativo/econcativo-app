@@ -82,17 +82,20 @@ function renderViajesTable(rows) {
         const actividad = str(getRowProp(r, ['Actividad', 'Tipo servicio', 'actividad'])).toLowerCase();
         const isSrv = str(vid).startsWith('SRV') || actividad.includes('servicio') || actividad.includes('maquinaria') || actividad.includes('grúa');
         
-        const icon = isSrv ? '<i class="fa-solid fa-trowel-bricks text-amber mr-1"></i>' : '<i class="fa-solid fa-truck text-navy mr-1"></i>';
-        const rawKmHs = str(getRowProp(r, ['Km final', 'Km recorridos', 'Km inicial', 'km_recorridos', 'km_hs'])).trim();
-        
         const choferVal = str(getRowProp(r, ['Chofer', 'chofer'])).trim();
         const unidadVal = str(getRowProp(r, ['Unidad', 'unidad'])).trim();
+        const isSinUnidad = unidadVal.toUpperCase() === 'SIN UNIDAD';
+
+        const icon = isSrv 
+            ? '<i class="fa-solid fa-trowel-bricks text-amber mr-1"></i>' 
+            : (isSinUnidad ? '<i class="fa-solid fa-user-gear text-navy mr-1"></i>' : '<i class="fa-solid fa-truck text-navy mr-1"></i>');
+        const rawKmHs = str(getRowProp(r, ['Km final', 'Km recorridos', 'Km inicial', 'km_recorridos', 'km_hs'])).trim();
 
         const estFact = str(getRowProp(r, ['Estado facturación', 'Estado facturacion', 'estado_facturacion'])).toLowerCase();
         const idIngreso = str(getRowProp(r, ['ID ingreso/factura', 'ID ingreso', 'id_ingreso_factura'])).trim();
 
         const isFinalizado = rawKmHs.includes('FINALIZADO') || estFact.includes('factura') || idIngreso.startsWith('ING-');
-        const isPendingData = !isFinalizado && (!choferVal || choferVal === '-' || choferVal.includes('POR ASIGNAR') || !unidadVal || unidadVal === '-' || unidadVal.includes('POR ASIGNAR'));
+        const isPendingData = !isFinalizado && (!choferVal || choferVal === '-' || choferVal.includes('POR ASIGNAR') || (!isSinUnidad && (!unidadVal || unidadVal === '-' || unidadVal.includes('POR ASIGNAR'))));
         
         let rowBgClass = 'hover:bg-slate-50 border-slate-100';
         let pendingBadge = '';
@@ -121,13 +124,16 @@ function renderViajesTable(rows) {
         }
         const clienteDisp = getRowProp(r, ['Cliente', 'cliente']) || '-';
         const cargaDisp = getRowProp(r, ['Carga', 'carga', 'Detalle/Concepto', 'Actividad']) || '-';
+        const unidadDisp = isSinUnidad 
+            ? '<span class="text-slate-500 italic text-[11px] bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">🚫 Sin Unidad</span>' 
+            : (unidadVal || '-');
 
         return `
             <tr class="${rowBgClass} border-b transition-all text-xs">
                 <td class="px-3 py-2.5 font-bold ${isPendingData ? 'text-amber-950' : 'text-navy'} whitespace-nowrap">${icon}${vid || '-'}${pendingBadge}</td>
                 <td class="px-3 py-2.5 whitespace-nowrap text-slate-600">${formatDateAR(getRowProp(r, ['Fecha salida', 'Fecha', 'fecha_salida']))}</td>
                 <td class="px-3 py-2.5 font-semibold text-slate-800">${choferVal || '-'}</td>
-                <td class="px-3 py-2.5 font-medium text-slate-700">${unidadVal || '-'}</td>
+                <td class="px-3 py-2.5 font-medium text-slate-700">${unidadDisp}</td>
                 <td class="px-3 py-2.5 font-medium text-slate-800">${clienteDisp}</td>
                 <td class="px-3 py-2.5 text-slate-600 font-medium">${formatLocation(getRowProp(r, ['Origen', 'origen']), getRowProp(r, ['Destino', 'destino']))}</td>
                 <td class="px-3 py-2.5 font-medium text-slate-700 text-[11px] max-w-xs truncate" title="${cargaDisp}">${cargaDisp}</td>
@@ -349,14 +355,15 @@ function renderViajeUnidadesRows() {
     container.innerHTML = viajeUnidades.map((val, idx) => `
         <div class="flex items-center gap-2">
             <select class="v-unidad-select w-full p-2 bg-white border border-slate-200 rounded-lg font-medium text-xs outline-none focus:ring-2 focus:ring-navy">
-                <option value="">-- Seleccionar Unidad / Maquinaria --</option>
+                <option value="">-- Seleccionar Unidad / Maquinaria (Opcional) --</option>
+                <option value="Sin Unidad" ${String(val || '').trim().toUpperCase() === 'SIN UNIDAD' ? 'selected' : ''}>🚫 Sin Unidad / Solo Operario</option>
                 ${unids.map(u => {
                     const uVal = typeof u === 'object' && u !== null ? (u.value ?? u.patente ?? '') : u;
                     const uLabel = typeof u === 'object' && u !== null ? (u.label ?? u.text ?? uVal) : u;
                     const cleanTarget = String(val || '').trim().toUpperCase();
                     const cleanVal = String(uVal || '').trim().toUpperCase();
                     const cleanLabel = String(uLabel || '').trim().toUpperCase();
-                    const isSelected = cleanVal && cleanTarget && (
+                    const isSelected = cleanVal && cleanTarget && cleanTarget !== 'SIN UNIDAD' && (
                         cleanVal === cleanTarget || 
                         cleanLabel === cleanTarget || 
                         cleanTarget.startsWith(cleanVal) || 
@@ -413,9 +420,11 @@ function completarViajeData(vid) {
         renderViajeChoferesRows();
 
         const rawUnidad = target ? str(getRowProp(target, ['Unidad', 'unidad'])).trim() : '';
-        if (rawUnidad && !rawUnidad.includes('POR ASIGNAR')) {
+        if (rawUnidad && !rawUnidad.includes('POR ASIGNAR') && rawUnidad.toUpperCase() !== 'SIN UNIDAD') {
             const list = rawUnidad.split(/\/\/|,/).map(u => u.trim()).filter(Boolean);
             viajeUnidades = list.length ? list : [''];
+        } else if (rawUnidad.toUpperCase() === 'SIN UNIDAD') {
+            viajeUnidades = ['Sin Unidad'];
         } else {
             viajeUnidades = [''];
         }
@@ -467,22 +476,19 @@ async function submitViaje(e) {
 
     saveCurrentViajeAssignmentsFromDOM();
     const selectedChoferes = viajeChoferes.filter(c => c && !c.includes('POR ASIGNAR'));
-    const selectedUnidades = viajeUnidades.filter(u => u && !u.includes('POR ASIGNAR'));
+    const selectedUnidades = viajeUnidades.filter(u => u && !u.includes('POR ASIGNAR') && u.trim().toUpperCase() !== 'SIN UNIDAD');
 
     if (selectedChoferes.length === 0) {
         showToast("Selecciona al menos un chofer u operador válido.", "error");
         return;
     }
 
-    if (selectedUnidades.length === 0) {
-        showToast("Selecciona al menos una unidad o maquinaria válida.", "error");
-        return;
-    }
+    const unidadFinal = selectedUnidades.length > 0 ? selectedUnidades.join(', ') : 'Sin Unidad';
 
     const payload = {
         id: vid,
         chofer: selectedChoferes.join(', '),
-        unidad: selectedUnidades.join(', '),
+        unidad: unidadFinal,
         origen: document.getElementById('v-origen') ? document.getElementById('v-origen').value.trim() : '',
         destino: document.getElementById('v-destino') ? document.getElementById('v-destino').value.trim() : '',
         fecha_salida: document.getElementById('v-fecha-salida').value,
@@ -741,5 +747,7 @@ async function confirmarEliminarViaje(vid) {
         hideLoading();
     }
 }
+
+
 
 

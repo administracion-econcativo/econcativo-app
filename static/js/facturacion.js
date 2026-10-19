@@ -372,3 +372,188 @@ async function confirmarEliminarFactura(iid) {
     }
 }
 
+// ==================== CARGAR FACTURA DIRECTA / HISTÓRICA ====================
+function openNuevaFacturaDirectaModal() {
+    const form = document.getElementById('form-factura-directa');
+    if (form) form.reset();
+
+    const todayStr = new Date().toISOString().split('T')[0];
+    const fFecha = document.getElementById('fd-fecha');
+    if (fFecha) fFecha.value = todayStr;
+
+    const fCobro = document.getElementById('fd-fecha-cobro');
+    if (fCobro) fCobro.value = todayStr;
+
+    const fTipo = document.getElementById('fd-tipo');
+    if (fTipo) fTipo.value = 'Factura A';
+
+    const fIvaPct = document.getElementById('fd-iva-pct');
+    if (fIvaPct) fIvaPct.value = '21';
+
+    const fEstadoCobro = document.getElementById('fd-estado-cobro');
+    if (fEstadoCobro) fEstadoCobro.value = 'PENDIENTE';
+
+    const fPreSaldo = document.getElementById('fd-pre-saldo-chk');
+    if (fPreSaldo) fPreSaldo.checked = true; // Por defecto protegido para no alterar saldo inicial
+
+    const fCrearViaje = document.getElementById('fd-crear-viaje');
+    if (fCrearViaje) fCrearViaje.checked = false;
+
+    // Toggle sections visibility
+    toggleFacturaDirectaViajeSection();
+    toggleFacturaDirectaCobroSection();
+
+    // Populate dropdowns from masterLists
+    if (window.masterLists && typeof populateSelect === 'function') {
+        if (window.masterLists.clientes) populateSelect('fd-cliente', window.masterLists.clientes, 'Seleccionar Cliente...');
+        if (window.masterLists.empleados) populateSelect('fd-chofer', window.masterLists.empleados, 'Seleccionar Chofer (Opcional)...');
+        if (window.masterLists.unidades) {
+            populateSelect('fd-unidad', window.masterLists.unidades, 'Seleccionar Unidad (Opcional)...');
+            const uSelect = document.getElementById('fd-unidad');
+            if (uSelect && !uSelect.querySelector('option[value="Sin Unidad"]')) {
+                const optSin = document.createElement('option');
+                optSin.value = 'Sin Unidad';
+                optSin.textContent = '🚫 Sin Unidad / Solo Operario';
+                uSelect.insertBefore(optSin, uSelect.children[1] || null);
+            }
+        }
+        
+        const ctaSel = document.getElementById('fd-cuenta-cobro');
+        if (ctaSel && window.masterLists.cuentas_tesoreria) {
+            const liquidAccs = window.masterLists.cuentas_tesoreria.filter(a => a.tipo !== 'Cheques');
+            ctaSel.innerHTML = liquidAccs.map(a => `<option value="${a.nombre}">${a.nombre} (${a.tipo})</option>`).join('');
+        }
+    }
+
+    calcFacturaDirectaTotal();
+    openModal('modal-factura-directa');
+}
+
+function calcFacturaDirectaTotal() {
+    const neto = parseFloat(document.getElementById('fd-neto')?.value) || 0.0;
+    const pct = parseFloat(document.getElementById('fd-iva-pct')?.value) || 0.0;
+    const ivaAmt = Math.round(neto * (pct / 100.0) * 100) / 100;
+    const total = Math.round((neto + ivaAmt) * 100) / 100;
+
+    const ivaEl = document.getElementById('fd-iva-calc');
+    const totEl = document.getElementById('fd-total-calc');
+
+    if (ivaEl) ivaEl.innerText = typeof formatARS === 'function' ? formatARS(ivaAmt) : `$${ivaAmt.toFixed(2)}`;
+    if (totEl) totEl.innerText = typeof formatARS === 'function' ? formatARS(total) : `$${total.toFixed(2)}`;
+}
+
+function toggleFacturaDirectaViajeSection() {
+    const chk = document.getElementById('fd-crear-viaje');
+    const sec = document.getElementById('fd-viaje-section');
+    if (!sec) return;
+    if (chk && chk.checked) {
+        sec.classList.remove('hidden');
+    } else {
+        sec.classList.add('hidden');
+    }
+}
+
+function toggleFacturaDirectaCobroSection() {
+    const est = document.getElementById('fd-estado-cobro')?.value;
+    const sec = document.getElementById('fd-cobro-section');
+    if (!sec) return;
+    if (est === 'COBRADO') {
+        sec.classList.remove('hidden');
+    } else {
+        sec.classList.add('hidden');
+    }
+}
+
+async function submitNuevaFacturaDirecta(e) {
+    e.preventDefault();
+
+    const cliente = (document.getElementById('fd-cliente')?.value || '').trim();
+    const tipo = (document.getElementById('fd-tipo')?.value || 'Factura A').trim();
+    const nro = (document.getElementById('fd-nro')?.value || '').trim().toUpperCase();
+    const fecha = document.getElementById('fd-fecha')?.value || '';
+    const actividad = (document.getElementById('fd-actividad')?.value || '').trim() || 'Facturación Directa';
+    const neto = parseFloat(document.getElementById('fd-neto')?.value) || 0.0;
+    const iva_pct = parseFloat(document.getElementById('fd-iva-pct')?.value) || 0.0;
+    const obs = (document.getElementById('fd-obs')?.value || '').trim();
+
+    if (!cliente) {
+        showToast("Por favor seleccione un cliente.", "error");
+        return;
+    }
+    if (!nro) {
+        showToast("Por favor ingrese el N° de factura ARCA.", "error");
+        return;
+    }
+    if (!fecha) {
+        showToast("Por favor ingrese la fecha de emisión.", "error");
+        return;
+    }
+    if (neto <= 0) {
+        showToast("El importe neto debe ser mayor a 0.", "error");
+        return;
+    }
+
+    const crearViaje = !!document.getElementById('fd-crear-viaje')?.checked;
+    const chofer = (document.getElementById('fd-chofer')?.value || '').trim();
+    const unidad = (document.getElementById('fd-unidad')?.value || '').trim();
+    const origen = (document.getElementById('fd-origen')?.value || '').trim();
+    const destino = (document.getElementById('fd-destino')?.value || '').trim();
+    const remito = (document.getElementById('fd-remito')?.value || '').trim();
+    const km = (document.getElementById('fd-km')?.value || '').trim();
+
+    const yaCobrado = document.getElementById('fd-estado-cobro')?.value === 'COBRADO';
+    const fechaCobro = document.getElementById('fd-fecha-cobro')?.value || fecha;
+    const medioCobro = document.getElementById('fd-cuenta-cobro')?.value || 'Banco Córdoba';
+    // Si pre-saldo está marcado, impacta_tesoreria = false (protección de tesorería activada)
+    const preSaldoChecked = !!document.getElementById('fd-pre-saldo-chk')?.checked;
+    const impactaTesoreria = yaCobrado ? !preSaldoChecked : false;
+
+    const payload = {
+        cliente: cliente,
+        tipo_comprobante: tipo,
+        nro_factura: nro,
+        fecha_emision: fecha,
+        actividad: actividad,
+        neto: neto,
+        iva_pct: iva_pct,
+        observaciones: obs,
+        crear_viaje: crearViaje,
+        chofer: chofer,
+        unidad: (unidad && unidad.toUpperCase() !== 'SIN UNIDAD') ? unidad : (chofer ? 'Sin Unidad' : 'POR ASIGNAR'),
+        origen: origen,
+        destino: destino,
+        remito: remito,
+        km_hs: km,
+        ya_cobrado: yaCobrado,
+        estado_cobro: yaCobrado ? 'COBRADO' : 'Pendiente de Cobro',
+        fecha_cobro: yaCobrado ? fechaCobro : '',
+        medio_cobro: yaCobrado ? medioCobro : '',
+        impacta_tesoreria: impactaTesoreria
+    };
+
+    showLoading("Guardando Factura", "Registrando comprobante y sincronizando datos...");
+    try {
+        const res = await fetch('/api/ingresos/factura/add', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const json = await res.json();
+        if (json.status === 'success') {
+            closeModal('modal-factura-directa');
+            if (typeof loadFacturacionData === 'function') await loadFacturacionData();
+            if (typeof loadIngresosData === 'function') await loadIngresosData();
+            if (crearViaje && typeof loadViajesData === 'function') await loadViajesData();
+            if (typeof loadTesoreriaData === 'function') await loadTesoreriaData();
+            showToast(json.message || `Factura ${nro} registrada exitosamente.`);
+        } else {
+            showToast("Error al guardar factura: " + (json.message || 'Error desconocido'), "error");
+        }
+    } catch (err) {
+        showToast("Error de conexión al guardar la factura.", "error");
+    } finally {
+        hideLoading();
+    }
+}
+
+

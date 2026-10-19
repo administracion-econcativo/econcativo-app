@@ -1185,34 +1185,73 @@ class DataManager:
         else:
             viaje_id = f"{prefix}-{next_v_row - 4:06d}"
 
-        origen = vdata.get('origen') or vdata.get('ubicacion') or ''
-        destino = vdata.get('destino') or vdata.get('ubicacion') or origen
-        carga = vdata.get('tipo_carga') or vdata.get('carga') or vdata.get('detalle_trabajo') or ''
+        fecha_salida = str(vdata.get('fecha_salida') or '').strip() or datetime.now().strftime('%Y-%m-%d')
+        chofer = str(vdata.get('chofer') or 'POR ASIGNAR').strip()
+        unidad_raw = str(vdata.get('unidad') or '').strip()
+        if unidad_raw and unidad_raw.upper() != 'POR ASIGNAR':
+            unidad = unidad_raw
+        else:
+            unidad = 'Sin Unidad' if (chofer and chofer != 'POR ASIGNAR') else 'POR ASIGNAR'
+        cliente = str(vdata.get('cliente') or '').strip()
+        origen = str(vdata.get('origen') or vdata.get('ubicacion') or 'POR DEFINIR').strip()
+        destino = str(vdata.get('destino') or vdata.get('ubicacion') or origen or 'POR DEFINIR').strip()
+        carga = str(vdata.get('tipo_carga') or vdata.get('carga') or vdata.get('detalle_trabajo') or '').strip()
+        remito = str(vdata.get('remito') or vdata.get('nro_remito') or '').strip()
+        cpe = str(vdata.get('cpe') or 'PENDIENTE').strip()
+        valor_servicio = self._to_float(vdata.get('valor_servicio', 0))
 
         km_or_hs = ''
         if vdata.get('km_totales'):
             km_or_hs = f"{vdata['km_totales']} km"
         elif vdata.get('horas_trabajo'):
             km_or_hs = f"{vdata['horas_trabajo']} hs"
+        elif vdata.get('km_recorridos'):
+            km_or_hs = str(vdata.get('km_recorridos'))
+        elif vdata.get('km_hs'):
+            km_or_hs = str(vdata.get('km_hs'))
+        else:
+            km_or_hs = 'ASIGNADO'
+
+        actividad = str(vdata.get('actividad') or tipo_op).strip()
+        obs = str(vdata.get('observaciones') or '').strip()
 
         row_vals = [
             viaje_id,
-            datetime.now().strftime('%Y-%m-%d'),
+            fecha_salida,
             '',
-            vdata.get('chofer', 'POR ASIGNAR'),
-            vdata.get('unidad', 'POR ASIGNAR'),
-            origen or 'POR DEFINIR',
-            destino or 'POR DEFINIR',
-            vdata.get('cliente', ''),
-            tipo_op,
+            chofer,
+            unidad,
+            origen,
+            destino,
+            cliente,
+            actividad,
             carga,
-            vdata.get('remito', ''),
-            vdata.get('cpe', ''),
+            remito,
+            cpe,
             0,
-            km_or_hs or 'COMPLETADO'
+            km_or_hs,
+            None,
+            None,
+            0,
+            0,
+            0,
+            valor_servicio,
+            'Pendiente',
+            '',
+            obs
         ]
         ws.append(row_vals)
         wb.save(self.excel_path)
+
+        # Extract numeric km for Supabase column (numeric type)
+        km_numeric = None
+        import re
+        km_digits = re.findall(r'[\d\.]+', km_or_hs.replace(',', '.'))
+        if km_digits:
+            try:
+                km_numeric = float(km_digits[0])
+            except:
+                km_numeric = None
 
         if self.supabase_service and self.supabase_service.is_connected():
             from sqlalchemy import text
@@ -1222,38 +1261,43 @@ class DataManager:
                         INSERT INTO viajes (
                             id_viaje, fecha_salida, chofer, unidad, origen, destino,
                             cliente, actividad, carga, nro_remito, cpe,
-                            km_inicial, valor_servicio, estado_facturacion,
-                            observaciones, created_at, updated_at
+                            km_inicial, km_recorridos, adelanto, valor_servicio,
+                            estado_facturacion, observaciones, created_at, updated_at
                         ) VALUES (
-                            :vid, :fecha, :chofer, :unidad, :origen, :destino,
+                            :vid, CAST(:fecha AS date), :chofer, :unidad, :origen, :destino,
                             :cliente, :actividad, :carga, :remito, :cpe,
-                            0, 0, 'Pendiente',
-                            :obs, NOW(), NOW()
+                            0, :km, 0, :valor,
+                            'Pendiente', :obs, NOW(), NOW()
                         )
                         ON CONFLICT (id_viaje) DO UPDATE SET
                             chofer = EXCLUDED.chofer,
                             unidad = EXCLUDED.unidad,
                             origen = EXCLUDED.origen,
                             destino = EXCLUDED.destino,
+                            valor_servicio = EXCLUDED.valor_servicio,
+                            km_recorridos = EXCLUDED.km_recorridos,
                             updated_at = NOW();
                     """), {
                         'vid': viaje_id,
-                        'fecha': datetime.now().strftime('%Y-%m-%d'),
-                        'chofer': vdata.get('chofer', 'POR ASIGNAR'),
-                        'unidad': vdata.get('unidad', 'POR ASIGNAR'),
-                        'origen': origen or 'POR DEFINIR',
-                        'destino': destino or 'POR DEFINIR',
-                        'cliente': vdata.get('cliente', ''),
-                        'actividad': tipo_op,
+                        'fecha': fecha_salida,
+                        'chofer': chofer,
+                        'unidad': unidad,
+                        'origen': origen,
+                        'destino': destino,
+                        'cliente': cliente,
+                        'actividad': actividad,
                         'carga': carga,
-                        'remito': vdata.get('remito', ''),
-                        'cpe': vdata.get('cpe', ''),
-                        'obs': km_or_hs or 'COMPLETADO'
+                        'remito': remito,
+                        'cpe': cpe,
+                        'km': km_numeric,
+                        'valor': valor_servicio,
+                        'obs': obs
                     })
             except Exception as e:
                 print(f"[add_viaje Supabase Error] {e}")
 
-        return {"status": "success", "id": viaje_id}
+        self._invalidate_cache()
+        return {"status": "success", "id": viaje_id, "message": f"Viaje {viaje_id} creado exitosamente."}
 
     def update_viaje(self, v_id, vdata):
         wb = self.load_wb(data_only=False)
@@ -1270,6 +1314,8 @@ class DataManager:
 
         chofer = str(vdata.get('chofer', '')).strip()
         unidad = str(vdata.get('unidad', '')).strip()
+        if not unidad and chofer and chofer != 'POR ASIGNAR':
+            unidad = 'Sin Unidad'
         origen = str(vdata.get('origen') or vdata.get('ubicacion') or '').strip()
         destino = str(vdata.get('destino') or vdata.get('ubicacion') or '').strip()
         cliente = str(vdata.get('cliente', '')).strip()
@@ -1660,8 +1706,9 @@ class DataManager:
         return {"status": "success", "id": v_id_clean, "ingreso_id": ingreso_id}
 
     def add_ingreso_factura(self, idata):
-        """Creates a new ARCA invoice / income directly in Supabase and mirrors to Excel."""
+        """Creates a new ARCA invoice / income directly in Supabase and mirrors to Excel, supporting direct historical entry, linked trips, and optional payment with treasury protection."""
         from datetime import datetime
+        import re
         
         # 1. Generate Next ID
         ingreso_id = None
@@ -1688,20 +1735,18 @@ class DataManager:
 
         nro = str(idata.get('nro_factura', '')).strip().upper()
         tipo = str(idata.get('tipo_comprobante', '')).strip() or 'Factura A'
-        if nro == 'COMPROBANTE-INTERNO' or 'No Fiscal' in tipo or 'Sin Factura' in tipo:
-            est_cobro = 'PENDIENTE MEDIO DE PAGO'
-            nro = 'COMPROBANTE-INTERNO'
-        else:
-            est_cobro = 'Pendiente de Cobro' if (nro and 'PENDIENTE' not in nro) else 'PENDIENTE DE FACTURA'
+        cliente = str(idata.get('cliente', '')).strip()
+        fecha_emision = str(idata.get('fecha_emision', '')).strip() or datetime.now().strftime('%Y-%m-%d')
+        actividad = str(idata.get('actividad', '')).strip() or 'Facturación Directa'
+        obs_input = str(idata.get('observaciones', '')).strip()
+        chofer = str(idata.get('chofer', '')).strip()
+        unidad = str(idata.get('unidad', '')).strip()
+        crear_viaje = bool(idata.get('crear_viaje', False))
 
         neto_val = float(idata['neto']) if idata.get('neto') else 0.0
         pct_val = float(idata.get('iva_pct', 21)) if idata.get('iva_pct') is not None else 21.0
         iva_amt = round(neto_val * (pct_val / 100.0), 2)
         total_val = round(neto_val + iva_amt, 2)
-        cliente = str(idata.get('cliente', '')).strip()
-        fecha_emision = str(idata.get('fecha_emision', '')).strip() or datetime.now().strftime('%Y-%m-%d')
-        actividad = str(idata.get('actividad', '')).strip() or 'Facturación Directa'
-        obs = str(idata.get('observaciones', '')).strip() or 'Factura creada directamente'
 
         punto_venta = '0001'
         if '-' in nro and nro != 'COMPROBANTE-INTERNO':
@@ -1720,6 +1765,128 @@ class DataManager:
             except Exception as e:
                 print(f"[add_ingreso_factura client CUIT lookup error] {e}")
 
+        # Cobro resolution
+        ya_cobrado = bool(idata.get('ya_cobrado', False)) or str(idata.get('estado_cobro', '')).upper() in ['COBRADO', 'YA COBRADA']
+        recibo_id = None
+        if ya_cobrado:
+            est_cobro = 'COBRADO'
+            imp_cobrado = total_val
+            saldo_val = 0.0
+            fecha_cobro = str(idata.get('fecha_cobro', '')).strip() or fecha_emision
+            medio_cuenta = str(idata.get('medio_cobro', '')).strip() or 'Banco Córdoba'
+            impacta_tesoreria = bool(idata.get('impacta_tesoreria', False))
+            if not impacta_tesoreria:
+                # Flagged so _extract_income_for_account knows NOT to add this to current treasury balances
+                medio_cobro = f"Cobro Histórico (Pre-saldo) - {medio_cuenta}"
+            else:
+                medio_cobro = medio_cuenta
+
+            if self.supabase_service and self.supabase_service.is_connected():
+                recibo_id = self.supabase_service.get_next_id('ingresos', 'REC', 'id_acuerdo')
+            else:
+                recibo_id = f"REC-{int(datetime.now().timestamp()):06d}"
+        else:
+            if nro == 'COMPROBANTE-INTERNO' or 'No Fiscal' in tipo or 'Sin Factura' in tipo:
+                est_cobro = 'PENDIENTE MEDIO DE PAGO'
+                nro = 'COMPROBANTE-INTERNO'
+            else:
+                est_cobro = 'Pendiente de Cobro' if (nro and 'PENDIENTE' not in nro) else 'PENDIENTE DE FACTURA'
+            imp_cobrado = 0.0
+            saldo_val = total_val
+            fecha_cobro = None
+            medio_cobro = None
+            recibo_id = None
+
+        viaje_id_created = None
+        obs_final = obs_input or 'Factura creada directamente'
+
+        # Optional: Create associated Viaje
+        if crear_viaje:
+            prefix_v = "SRV" if "servicio" in actividad.lower() else "VIA"
+            if self.supabase_service and self.supabase_service.is_connected():
+                viaje_id_created = self.supabase_service.get_next_id('viajes', prefix_v, 'id_viaje')
+            else:
+                viaje_id_created = f"{prefix_v}-{int(datetime.now().timestamp()):06d}"
+            
+            origen_v = str(idata.get('origen', '')).strip() or 'POR DEFINIR'
+            destino_v = str(idata.get('destino', '')).strip() or 'POR DEFINIR'
+            carga_v = str(idata.get('carga', '')).strip() or actividad
+            km_hs_raw = str(idata.get('km_hs', 'COMPLETADO')).replace('(FINALIZADO)', '').strip()
+            km_recorridos_v = f"{km_hs_raw} (FINALIZADO)" if km_hs_raw else 'COMPLETADO (FINALIZADO)'
+
+            chofer_v = chofer or 'POR ASIGNAR'
+            unidad_raw = str(idata.get('unidad', '')).strip()
+            if unidad_raw and unidad_raw.upper() != 'POR ASIGNAR':
+                unidad_v = unidad_raw
+            else:
+                unidad_v = 'Sin Unidad' if (chofer_v and chofer_v != 'POR ASIGNAR') else 'POR ASIGNAR'
+
+            obs_final = f"Operación origen: {viaje_id_created} | {obs_final}".strip(' |')
+
+            km_num = None
+            km_digits = re.findall(r'[\d\.]+', km_hs_raw.replace(',', '.'))
+            if km_digits:
+                try:
+                    km_num = float(km_digits[0])
+                except:
+                    km_num = None
+
+            # Insert Viaje in Supabase
+            if self.supabase_service and self.supabase_service.is_connected():
+                from sqlalchemy import text
+                try:
+                    with self.supabase_service.engine.begin() as conn:
+                        conn.execute(text("""
+                            INSERT INTO viajes (
+                                id_viaje, fecha_salida, chofer, unidad, origen, destino,
+                                cliente, actividad, carga, nro_remito, cpe,
+                                km_inicial, km_recorridos, adelanto, valor_servicio,
+                                estado_facturacion, id_ingreso_factura, observaciones,
+                                created_at, updated_at
+                            ) VALUES (
+                                :vid, CAST(:fecha AS date), :chofer, :unidad, :origen, :destino,
+                                :cliente, :actividad, :carga, :remito, :cpe,
+                                0, :km, 0, :valor,
+                                'Facturado', :ing_id, :obs_v,
+                                NOW(), NOW()
+                            )
+                        """), {
+                            'vid': viaje_id_created,
+                            'fecha': fecha_emision,
+                            'chofer': chofer_v,
+                            'unidad': unidad_v,
+                            'origen': origen_v,
+                            'destino': destino_v,
+                            'cliente': cliente,
+                            'actividad': actividad,
+                            'carga': carga_v,
+                            'remito': str(idata.get('remito', '')).strip(),
+                            'cpe': str(idata.get('cpe', '')).strip() or 'COMPLETADO',
+                            'km': km_num,
+                            'valor': neto_val,
+                            'ing_id': ingreso_id,
+                            'obs_v': f"Factura vinculada: {nro} ({ingreso_id})"
+                        })
+                except Exception as e:
+                    print(f"[add_ingreso_factura create viaje Supabase error] {e}")
+
+            # Mirror Viaje to Excel
+            try:
+                wb_v = self.load_wb(data_only=False)
+                if 'VIAJES' in wb_v.sheetnames:
+                    ws_v = wb_v['VIAJES']
+                    row_v = [
+                        viaje_id_created, fecha_emision, '', chofer_v, unidad_v,
+                        origen_v, destino_v, cliente, actividad, carga_v,
+                        str(idata.get('remito', '')).strip(), str(idata.get('cpe', '')).strip() or 'COMPLETADO',
+                        0, km_recorridos_v, None, None, 0, 0, 0, neto_val, 'Facturado', ingreso_id,
+                        f"Factura vinculada: {nro} ({ingreso_id})"
+                    ]
+                    ws_v.append(row_v)
+                    wb_v.save(self.excel_path)
+            except Exception as e:
+                print(f"[add_ingreso_factura create viaje Excel error] {e}")
+
         # 1. Supabase Master Insert
         if self.supabase_service and self.supabase_service.is_connected():
             from sqlalchemy import text
@@ -1728,14 +1895,16 @@ class DataManager:
                     conn.execute(text("""
                         INSERT INTO ingresos (
                             id_ingreso, fecha_emision, tipo_comprobante, punto_venta,
-                            nro_factura_arca, cliente, cuit_cuil, actividad,
+                            nro_factura_arca, cliente, cuit_cuil, actividad, chofer, unidad,
                             neto, iva_pct, iva, total, estado_cobro, importe_cobrado,
-                            saldo, observaciones, created_at, updated_at
+                            saldo, fecha_cobro, medio_cobro, id_acuerdo, observaciones,
+                            created_at, updated_at
                         ) VALUES (
                             :iid, CAST(:fecha AS date), :tipo, :punto_venta,
-                            :nro, :cliente, :cuit, :actividad,
-                            :neto, :iva_pct, :iva, :total, :est_cobro, 0.0,
-                            :saldo, :obs, NOW(), NOW()
+                            :nro, :cliente, :cuit, :actividad, :chofer, :unidad,
+                            :neto, :iva_pct, :iva, :total, :est_cobro, :imp_cobrado,
+                            :saldo, CAST(NULLIF(:f_cobro, '') AS date), :medio, :recibo, :obs,
+                            NOW(), NOW()
                         );
                     """), {
                         'iid': ingreso_id,
@@ -1746,13 +1915,19 @@ class DataManager:
                         'cliente': cliente,
                         'cuit': cuit,
                         'actividad': actividad,
+                        'chofer': chofer or '',
+                        'unidad': (unidad_v if (crear_viaje and unidad_v != 'POR ASIGNAR') else (unidad if (unidad and unidad.upper() != 'POR ASIGNAR') else ('Sin Unidad' if chofer else ''))),
                         'neto': neto_val,
                         'iva_pct': pct_val,
                         'iva': iva_amt,
                         'total': total_val,
                         'est_cobro': est_cobro,
-                        'saldo': total_val,
-                        'obs': obs
+                        'imp_cobrado': imp_cobrado,
+                        'saldo': saldo_val,
+                        'f_cobro': fecha_cobro or '',
+                        'medio': medio_cobro or '',
+                        'recibo': recibo_id or '',
+                        'obs': obs_final
                     })
             except Exception as e:
                 print(f"[add_ingreso_factura Supabase Error] {e}")
@@ -1774,14 +1949,19 @@ class DataManager:
                         6: cliente,
                         7: cuit or '',
                         8: actividad,
+                        9: chofer or '',
+                        10: (unidad_v if (crear_viaje and unidad_v != 'POR ASIGNAR') else (unidad if (unidad and unidad.upper() != 'POR ASIGNAR') else ('Sin Unidad' if chofer else ''))),
                         13: neto_val,
                         14: pct_val,
                         15: iva_amt,
                         16: total_val,
                         17: est_cobro,
-                        18: 0.0,
-                        21: total_val,
-                        28: obs
+                        18: imp_cobrado,
+                        19: fecha_cobro or '',
+                        20: medio_cobro or '',
+                        21: saldo_val,
+                        22: recibo_id or '',
+                        28: obs_final
                     }
                     for col_idx, col_val in row_dict.items():
                         ws.cell(target_row, col_idx, col_val)
@@ -1790,7 +1970,12 @@ class DataManager:
         except Exception as excel_err:
             print(f"[add_ingreso_factura Excel warning] {excel_err}")
 
-        return {"status": "success", "id": ingreso_id, "message": "Factura guardada con éxito"}
+        return {
+            "status": "success",
+            "id": ingreso_id,
+            "viaje_id": viaje_id_created,
+            "message": f"Factura {nro} ({ingreso_id}) guardada exitosamente."
+        }
 
     def update_ingreso_factura(self, i_id, idata):
         """Updates ARCA invoice details for an INGRESOS row directly in Supabase."""
@@ -9285,6 +9470,11 @@ class DataManager:
         med_orig = ing.get('medio') or ''
         m_total = ing.get('monto', 0.0)
         if m_total <= 0 or not med_orig:
+            return 0.0
+
+        med_l = med_orig.lower()
+        # Protección de Tesorería: Cobros históricos o previos al saldo inicial nunca suman a las cuentas
+        if any(k in med_l for k in ['pre-saldo', 'pre_saldo', 'histórico', 'historico', 'saldo inicial', 'cobro previo', 'no sumar a tesorería', 'no sumar a tesoreria']):
             return 0.0
 
         cid = acc['id']
