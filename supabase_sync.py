@@ -116,43 +116,46 @@ def sync_all_from_supabase_to_wb(engine, wb):
     try:
         with engine.connect() as conn:
             for key, mapping in TABLE_MAPPINGS.items():
-                table = mapping['table']
-                pk = mapping['pk']
-                sheet_name = key.upper()
-                headers = mapping['headers']
-                col_map = mapping['col_map']
+                try:
+                    table = mapping['table']
+                    pk = mapping['pk']
+                    sheet_name = key.upper()
+                    headers = mapping['headers']
+                    col_map = mapping['col_map']
 
-                if sheet_name not in wb.sheetnames:
-                    continue
+                    if sheet_name not in wb.sheetnames:
+                        continue
 
-                res = conn.execute(text(f"SELECT * FROM {table} ORDER BY {pk} ASC"))
-                rows = [dict(r) for r in res.mappings()]
-                if not rows:
-                    continue
+                    res = conn.execute(text(f"SELECT * FROM {table} ORDER BY {pk} ASC"))
+                    rows = [dict(r) for r in res.mappings()]
+                    if not rows:
+                        continue
 
-                ws = wb[sheet_name]
-                # Clear existing rows from row 5 onwards
-                if ws.max_row >= 5:
-                    ws.delete_rows(5, ws.max_row - 4)
+                    ws = wb[sheet_name]
+                    # Clear existing rows from row 5 onwards
+                    if ws.max_row >= 5:
+                        ws.delete_rows(5, ws.max_row - 4)
 
-                for r_data in rows:
-                    row_vals = []
-                    for h in headers:
-                        # Find corresponding db column
-                        db_col = None
-                        for c_col, c_header in col_map.items():
-                            if c_header == h:
-                                db_col = c_col
-                                break
-                        val = r_data.get(db_col) if db_col else None
-                        if isinstance(val, (datetime, date)):
-                            val = val.strftime('%Y-%m-%d')
-                        elif isinstance(val, Decimal):
-                            val = float(val)
-                        elif isinstance(val, (dict, list)):
-                            val = json.dumps(val, ensure_ascii=False)
-                        row_vals.append(val if val is not None else "")
-                    ws.append(row_vals)
+                    for r_data in rows:
+                        row_vals = []
+                        for h in headers:
+                            # Find corresponding db column
+                            db_col = None
+                            for c_col, c_header in col_map.items():
+                                if c_header == h:
+                                    db_col = c_col
+                                    break
+                            val = r_data.get(db_col) if db_col else None
+                            if isinstance(val, (datetime, date)):
+                                val = val.strftime('%Y-%m-%d')
+                            elif isinstance(val, Decimal):
+                                val = float(val)
+                            elif isinstance(val, (dict, list)):
+                                val = json.dumps(val, ensure_ascii=False)
+                            row_vals.append(val if val is not None else "")
+                        ws.append(row_vals)
+                except Exception as table_err:
+                    print(f"[SYNC SUPABASE -> EXCEL ERROR on {key}] {table_err}")
 
         return True
     except Exception as e:

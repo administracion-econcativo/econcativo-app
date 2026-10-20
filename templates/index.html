@@ -2569,7 +2569,7 @@
 
                         <div>
                             <label class="font-semibold text-slate-700">Fecha de Emisión *</label>
-                            <input type="date" id="fd-fecha" required class="w-full mt-1 p-2.5 bg-white border border-slate-200 rounded-lg font-medium outline-none focus:ring-2 focus:ring-navy">
+                            <input type="date" id="fd-fecha" required min="1950-01-01" max="2099-12-31" class="w-full mt-1 p-2.5 bg-white border border-slate-200 rounded-lg font-medium outline-none focus:ring-2 focus:ring-navy">
                         </div>
 
                         <div>
@@ -2681,7 +2681,7 @@
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                             <div>
                                 <label class="font-semibold text-slate-700">Fecha en que se Cobró *</label>
-                                <input type="date" id="fd-fecha-cobro" class="w-full mt-1 p-2.5 bg-white border border-slate-200 rounded-lg font-medium outline-none focus:ring-2 focus:ring-navy">
+                                <input type="date" id="fd-fecha-cobro" min="1950-01-01" max="2099-12-31" class="w-full mt-1 p-2.5 bg-white border border-slate-200 rounded-lg font-medium outline-none focus:ring-2 focus:ring-navy">
                             </div>
                             <div>
                                 <label class="font-semibold text-slate-700">Cuenta de Tesorería / Medio</label>
@@ -4642,7 +4642,7 @@
     <script src="/static/js/maestros.js?v=supabase_v40"></script>
     <script src="/static/js/presupuestos.js?v=supabase_v35"></script>
     <script src="/static/js/viajes.js?v=supabase_v42"></script>
-    <script src="/static/js/facturacion.js?v=supabase_v40"></script>
+    <script src="/static/js/facturacion.js?v=supabase_v42"></script>
     <script src="/static/js/ingresos.js?v=supabase_v37"></script>
     <script src="/static/js/egresos.js?v=supabase_v35"></script>
     <script src="/static/js/ordenes_compra.js?v=supabase_v35"></script>

@@ -488,6 +488,11 @@ async function submitNuevaFacturaDirecta(e) {
         showToast("Por favor ingrese la fecha de emisión.", "error");
         return;
     }
+    const fechaYear = parseInt(fecha.split("-")[0], 10);
+    if (isNaN(fechaYear) || fechaYear < 1950 || fechaYear > 2099) {
+        showToast("Año de fecha inválido. Ingrese un año entre 1950 y 2099.", "error");
+        return;
+    }
     if (neto <= 0) {
         showToast("El importe neto debe ser mayor a 0.", "error");
         return;
@@ -503,6 +508,13 @@ async function submitNuevaFacturaDirecta(e) {
 
     const yaCobrado = document.getElementById('fd-estado-cobro')?.value === 'COBRADO';
     const fechaCobro = document.getElementById('fd-fecha-cobro')?.value || fecha;
+    if (yaCobrado && fechaCobro) {
+        const fcYear = parseInt(fechaCobro.split("-")[0], 10);
+        if (isNaN(fcYear) || fcYear < 1950 || fcYear > 2099) {
+            showToast("Año de fecha de cobro inválido. Ingrese un año entre 1950 y 2099.", "error");
+            return;
+        }
+    }
     const medioCobro = document.getElementById('fd-cuenta-cobro')?.value || 'Banco Córdoba';
     // Si pre-saldo está marcado, impacta_tesoreria = false (protección de tesorería activada)
     const preSaldoChecked = !!document.getElementById('fd-pre-saldo-chk')?.checked;

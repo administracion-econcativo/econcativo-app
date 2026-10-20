@@ -40,6 +40,39 @@ def format_datetime_ar(dt_val):
 
     return str(dt_val)
 
+def sanitize_date_str(d_val):
+    """Ensures a date string has a valid 4-digit year between 1900 and 2099.
+    Corrects out-of-range typos like 82026-12-20 -> 2026-12-20.
+    """
+    if not d_val:
+        return datetime.now().strftime('%Y-%m-%d')
+    s = str(d_val).strip()
+    if not s or s == '-' or s.lower() in ('none', 'null'):
+        return datetime.now().strftime('%Y-%m-%d')
+    sep = '-' if '-' in s else ('/' if '/' in s else None)
+    if sep:
+        parts = s.split(sep)
+        if len(parts) == 3:
+            try:
+                if len(parts[0]) >= 4:
+                    y_str, m_str, d_str = parts[0], parts[1], parts[2]
+                else:
+                    d_str, m_str, y_str = parts[0], parts[1], parts[2]
+                y = int(y_str)
+                m = max(1, min(12, int(m_str)))
+                d = max(1, min(31, int(d_str)))
+                if y > 2099 or y < 1900:
+                    import re
+                    m_yr = re.search(r'(19\d{2}|20\d{2})', y_str)
+                    if m_yr:
+                        y = int(m_yr.group(1))
+                    else:
+                        y = datetime.now().year
+                return f"{y:04d}-{m:02d}-{d:02d}"
+            except Exception:
+                pass
+    return s[:10]
+
 load_dotenv()
 
 EXCEL_PATH = os.path.join(os.path.dirname(__file__), "operation_data.xlsx")
@@ -1736,7 +1769,7 @@ class DataManager:
         nro = str(idata.get('nro_factura', '')).strip().upper()
         tipo = str(idata.get('tipo_comprobante', '')).strip() or 'Factura A'
         cliente = str(idata.get('cliente', '')).strip()
-        fecha_emision = str(idata.get('fecha_emision', '')).strip() or datetime.now().strftime('%Y-%m-%d')
+        fecha_emision = sanitize_date_str(idata.get('fecha_emision'))
         actividad = str(idata.get('actividad', '')).strip() or 'Facturación Directa'
         obs_input = str(idata.get('observaciones', '')).strip()
         chofer = str(idata.get('chofer', '')).strip()
@@ -1772,7 +1805,7 @@ class DataManager:
             est_cobro = 'COBRADO'
             imp_cobrado = total_val
             saldo_val = 0.0
-            fecha_cobro = str(idata.get('fecha_cobro', '')).strip() or fecha_emision
+            fecha_cobro = sanitize_date_str(idata.get('fecha_cobro')) if idata.get('fecha_cobro') else fecha_emision
             medio_cuenta = str(idata.get('medio_cobro', '')).strip() or 'Banco Córdoba'
             impacta_tesoreria = bool(idata.get('impacta_tesoreria', False))
             if not impacta_tesoreria:
@@ -2017,7 +2050,7 @@ class DataManager:
                         'nro': idata.get('nro_factura'),
                         'tipo': idata.get('tipo_comprobante'),
                         'cliente': idata.get('cliente'),
-                        'fecha': idata.get('fecha_emision'),
+                        'fecha': sanitize_date_str(idata.get('fecha_emision')) if idata.get('fecha_emision') else None,
                         'neto': neto_val,
                         'iva_pct': pct_val,
                         'iva': iva_amt,
