@@ -360,7 +360,10 @@ function calcCobroTotal() {
     const transf = parseFloat(document.getElementById('ic-monto-transferencia')?.value) || 0;
     const efectivo = parseFloat(document.getElementById('ic-monto-efectivo')?.value) || 0;
     const tarjeta = parseFloat(document.getElementById('ic-monto-tarjeta')?.value) || 0;
-    const retenciones = parseFloat(document.getElementById('ic-monto-retenciones')?.value) || 0;
+    const retGanancias = parseFloat(document.getElementById('ic-monto-ret-ganancias')?.value) || 0;
+    const retIva = parseFloat(document.getElementById('ic-monto-ret-iva')?.value) || 0;
+    const retLegacy = parseFloat(document.getElementById('ic-monto-retenciones')?.value) || 0;
+    const retenciones = retGanancias + retIva + (retGanancias === 0 && retIva === 0 ? retLegacy : 0);
 
     // Calcular suma de todos los cheques agregados dinámicamente
     let totalCheques = 0;
@@ -709,6 +712,9 @@ async function marcarComoCobrado(iid) {
     document.getElementById('ic-monto-transferencia').value = saldoACobrar > 0 ? saldoACobrar : '';
     document.getElementById('ic-monto-efectivo').value = '';
     document.getElementById('ic-monto-tarjeta').value = '';
+    if (document.getElementById('ic-monto-ret-ganancias')) document.getElementById('ic-monto-ret-ganancias').value = '';
+    if (document.getElementById('ic-monto-ret-iva')) document.getElementById('ic-monto-ret-iva').value = '';
+    if (document.getElementById('ic-monto-retenciones')) document.getElementById('ic-monto-retenciones').value = '';
     calcCobroTotal();
 
     document.getElementById('ic-fecha').value = new Date().toISOString().split('T')[0];
@@ -780,7 +786,10 @@ async function submitCobro(e) {
     const transf = parseFloat(document.getElementById('ic-monto-transferencia')?.value) || 0;
     const efectivo = parseFloat(document.getElementById('ic-monto-efectivo')?.value) || 0;
     const tarjeta = parseFloat(document.getElementById('ic-monto-tarjeta')?.value) || 0;
-    const retenciones = parseFloat(document.getElementById('ic-monto-retenciones')?.value) || 0;
+    const retGanancias = parseFloat(document.getElementById('ic-monto-ret-ganancias')?.value) || 0;
+    const retIva = parseFloat(document.getElementById('ic-monto-ret-iva')?.value) || 0;
+    const retLegacy = parseFloat(document.getElementById('ic-monto-retenciones')?.value) || 0;
+    const retenciones = retGanancias + retIva + (retGanancias === 0 && retIva === 0 ? retLegacy : 0);
 
     // Recolectar cheques dinámicos
     const chequesList = [];
@@ -843,6 +852,8 @@ async function submitCobro(e) {
         monto_transferencia: transf,
         monto_efectivo: efectivo,
         monto_tarjeta: tarjeta,
+        monto_ret_ganancias: retGanancias,
+        monto_ret_iva: retIva,
         monto_retenciones: retenciones,
         monto_saldo_favor: sfVal,
         cheques: chequesList,

@@ -275,7 +275,7 @@
             </div>
 
             <!-- Fila 3 de Gráficos -->
-            <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
                 <!-- Chart 5: Top Clientes por Facturación -->
                 <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col justify-between">
                     <div>
@@ -314,6 +314,20 @@
                             <canvas id="chart-cheques-status"></canvas>
                         </div>
                         <div id="legend-cheques-status" class="mt-3 pt-3 border-t border-slate-100 space-y-1.5 max-h-48 overflow-y-auto no-scrollbar"></div>
+                    </div>
+                </div>
+
+                <!-- Chart 8: Retenciones Fiscales (Ganancias vs. IVA) -->
+                <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col justify-between">
+                    <div>
+                        <h3 class="font-bold text-slate-800 text-base mb-1 flex items-center gap-2">
+                            <i class="fa-solid fa-receipt text-amber-600"></i> Retenciones Fiscales
+                        </h3>
+                        <p class="text-xs text-slate-400 mb-4">Ganancias vs. IVA (Créditos Fiscales)</p>
+                        <div class="relative h-48 w-full flex items-center justify-center">
+                            <canvas id="chart-retenciones"></canvas>
+                        </div>
+                        <div id="legend-retenciones" class="mt-3 pt-3 border-t border-slate-100 space-y-1.5 max-h-48 overflow-y-auto no-scrollbar"></div>
                     </div>
                 </div>
             </div>
@@ -529,6 +543,14 @@
                             <option value="pendiente_arca">🟡 Pendiente ARCA</option>
                             <option value="factura_emitida">⚪ Factura Emitida (Pendiente Cobro)</option>
                             <option value="enviado_ingresos">🟢 Transferido a Ingresos</option>
+                        </select>
+                        <select id="filter-f-tipo" onchange="filterFacturacionTable()" class="px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-navy">
+                            <option value="">Todos los Tipos</option>
+                            <option value="Factura A">Factura A</option>
+                            <option value="Factura B">Factura B</option>
+                            <option value="Factura C">Factura C</option>
+                            <option value="Factura M">Factura M</option>
+                            <option value="Comprobante Interno (No Fiscal)">Comprobante Interno (No Fiscal)</option>
                         </select>
                         <button type="button" onclick="resetFacturacionFilters()" title="Limpiar todos los filtros" class="px-3 py-2 bg-white hover:bg-rose-50 text-slate-600 hover:text-rose-600 border border-slate-200 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-sm">
                             <i class="fa-solid fa-arrow-rotate-left"></i> Limpiar
@@ -2784,13 +2806,18 @@
                     <input type="number" step="0.01" id="ic-monto-efectivo" oninput="calcCobroTotal()" placeholder="0.00" class="w-full mt-1 p-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-slate-800 outline-none focus:ring-2 focus:ring-emerald-600">
                 </div>
                 <div>
+                    <label class="font-semibold text-slate-700"><i class="fa-solid fa-receipt text-amber-600 mr-1"></i>Retención Ganancias ($)</label>
+                    <input type="number" step="0.01" id="ic-monto-ret-ganancias" oninput="calcCobroTotal()" placeholder="0.00" class="w-full mt-1 p-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-slate-800 outline-none focus:ring-2 focus:ring-emerald-600">
+                </div>
+                <div>
+                    <label class="font-semibold text-slate-700"><i class="fa-solid fa-file-invoice text-amber-600 mr-1"></i>Retención IVA ($)</label>
+                    <input type="number" step="0.01" id="ic-monto-ret-iva" oninput="calcCobroTotal()" placeholder="0.00" class="w-full mt-1 p-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-slate-800 outline-none focus:ring-2 focus:ring-emerald-600">
+                </div>
+                <div class="col-span-2">
                     <label class="font-semibold text-slate-700"><i class="fa-solid fa-credit-card text-indigo-600 mr-1"></i>Tarjeta / Otros ($)</label>
                     <input type="number" step="0.01" id="ic-monto-tarjeta" oninput="calcCobroTotal()" placeholder="0.00" class="w-full mt-1 p-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-slate-800 outline-none focus:ring-2 focus:ring-emerald-600">
                 </div>
-                <div>
-                    <label class="font-semibold text-slate-700"><i class="fa-solid fa-receipt text-amber-600 mr-1"></i>Retenciones Fiscales ($)</label>
-                    <input type="number" step="0.01" id="ic-monto-retenciones" oninput="calcCobroTotal()" placeholder="0.00 (Ganancias, IIBB)" class="w-full mt-1 p-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-slate-800 outline-none focus:ring-2 focus:ring-emerald-600">
-                </div>
+                <input type="hidden" id="ic-monto-retenciones" value="0">
 
                 <!-- Hidden inputs for backward compatibility -->
                 <input type="hidden" id="ic-monto-cheque" value="0">

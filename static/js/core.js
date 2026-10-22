@@ -27,6 +27,7 @@ let chartActivities = null;
 let chartTopClients = null;
 let chartUnitFuel = null;
 let chartChequesStatus = null;
+let chartRetenciones = null;
 let masterLists = {};
 try {
     Object.defineProperty(window, 'masterLists', {

@@ -95,6 +95,7 @@ async function loadDashboardData() {
         renderTopClientsChart(json.data.top_clientes);
         renderUnitFuelChart(json.data.consumo_unidades);
         renderChequesStatusChart(json.data.estado_cheques);
+        renderRetencionesChart(json.data.retenciones_fiscales);
 
     } catch (err) {
         console.error("Error al cargar el dashboard:", err);
@@ -531,3 +532,68 @@ function renderChequesStatusChart(chequesData) {
     renderDoughnutLegend('legend-cheques-status', legendItems, '$');
 }
 
+
+
+function renderRetencionesChart(retData) {
+    const ctxElement = document.getElementById('chart-retenciones');
+    if (!ctxElement) return;
+    const ctx = ctxElement.getContext('2d');
+
+    const entries = Object.entries(retData || {});
+    // Ensure both categories exist even if 0 for legend
+    const dataMap = {
+        'Retención Ganancias': 0,
+        'Retención IVA': 0
+    };
+    entries.forEach(([k, v]) => {
+        if (k.toLowerCase().includes('ganancia')) dataMap['Retención Ganancias'] = Number(v) || 0;
+        else if (k.toLowerCase().includes('iva')) dataMap['Retención IVA'] = Number(v) || 0;
+        else dataMap[k] = Number(v) || 0;
+    });
+
+    const labels = Object.keys(dataMap);
+    const values = Object.values(dataMap);
+    const statusColorMap = {
+        'Retención Ganancias': '#D48806', // Amber cálido
+        'Retención IVA': '#002B5C'        // Navy oficial
+    };
+    const colors = labels.map(l => statusColorMap[l] || '#10B981');
+
+    if (chartRetenciones) chartRetenciones.destroy();
+
+    const hasData = values.some(v => v > 0);
+
+    chartRetenciones = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+            labels: hasData ? labels : ['Sin retenciones registradas'],
+            datasets: [{
+                data: hasData ? values : [1],
+                backgroundColor: hasData ? colors : ['#E2E8F0'],
+                borderWidth: 2,
+                borderColor: '#FFFFFF'
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            cutout: '65%',
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    enabled: hasData,
+                    callbacks: {
+                        label: (ctx) => ` ${ctx.label}: ${formatARS(ctx.parsed)}`
+                    }
+                }
+            }
+        }
+    });
+
+    const legendItems = labels.map((label, idx) => ({
+        label,
+        value: values[idx],
+        color: colors[idx]
+    }));
+    renderDoughnutLegend('legend-retenciones', legendItems, '$');
+}

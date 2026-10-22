@@ -2217,7 +2217,12 @@ class DataManager:
         m_cheque = self._to_float(cdata.get('monto_cheque'))
         m_efectivo = self._to_float(cdata.get('monto_efectivo'))
         m_tarjeta = self._to_float(cdata.get('monto_tarjeta'))
-        m_retenciones = self._to_float(cdata.get('monto_retenciones'))
+        m_ret_ganancias = self._to_float(cdata.get('monto_ret_ganancias'))
+        m_ret_iva = self._to_float(cdata.get('monto_ret_iva'))
+        m_ret_legacy = self._to_float(cdata.get('monto_retenciones'))
+        if m_ret_ganancias == 0 and m_ret_iva == 0 and m_ret_legacy > 0:
+            m_ret_ganancias = m_ret_legacy
+        m_retenciones = m_ret_ganancias + m_ret_iva
         m_saldo_favor = self._to_float(cdata.get('monto_saldo_favor'))
 
         # Normalize cheques list (support multiple cheques / e-cheqs)
@@ -2268,7 +2273,8 @@ class DataManager:
         if m_transf > 0: medios_list.append(f"Transferencia: ${m_transf:,.2f}")
         if m_efectivo > 0: medios_list.append(f"Efectivo: ${m_efectivo:,.2f}")
         if m_tarjeta > 0: medios_list.append(f"Tarjeta: ${m_tarjeta:,.2f}")
-        if m_retenciones > 0: medios_list.append(f"Retención Impositiva: ${m_retenciones:,.2f}")
+        if m_ret_ganancias > 0: medios_list.append(f"Retención Ganancias: ${m_ret_ganancias:,.2f}")
+        if m_ret_iva > 0: medios_list.append(f"Retención IVA: ${m_ret_iva:,.2f}")
         for ch in processed_cheques_input:
             ch_tipo = ch['tipo']
             ch_monto = ch['monto']
@@ -2817,14 +2823,25 @@ class DataManager:
                             medios_dict[medio_str.strip()] = float(r.get('importe_cobrado') or 0)
                         
                         # Parse retenciones from observaciones if not present in medios_dict
-                        if 'retenci' not in str(medios_dict).lower() and r.get('observaciones'):
+                        if r.get('observaciones'):
                             obs_txt = str(r.get('observaciones') or '')
-                            m_ret = re.search(r'RETENCI[OÓ]N\s*([A-Za-z\s]+)?[:\$]?\s*\$?([\d\.,]+)', obs_txt, re.IGNORECASE)
-                            if m_ret:
-                                concept_raw = m_ret.group(1).strip() if m_ret.group(1) else 'Fiscal'
-                                amt_val = self._to_float(m_ret.group(2).strip())
-                                if amt_val > 0:
-                                    medios_dict[f"Retención {concept_raw.title()}"] = amt_val
+                            if 'ganancia' not in str(medios_dict).lower():
+                                m_gan = re.search(r'RETENCI[OÓ]N\s+GANANCIAS?[:\$]?\s*\$?([\d\.,]+)', obs_txt, re.IGNORECASE)
+                                if m_gan:
+                                    v_g = self._to_float(m_gan.group(1).strip())
+                                    if v_g > 0: medios_dict['Retención Ganancias'] = v_g
+                            if 'iva' not in str(medios_dict).lower():
+                                m_iva = re.search(r'RETENCI[OÓ]N\s+IVA[:\$]?\s*\$?([\d\.,]+)', obs_txt, re.IGNORECASE)
+                                if m_iva:
+                                    v_i = self._to_float(m_iva.group(1).strip())
+                                    if v_i > 0: medios_dict['Retención IVA'] = v_i
+                            if 'retenci' not in str(medios_dict).lower():
+                                m_ret = re.search(r'RETENCI[OÓ]N\s*([A-Za-z\s]+)?[:\$]?\s*\$?([\d\.,]+)', obs_txt, re.IGNORECASE)
+                                if m_ret:
+                                    concept_raw = m_ret.group(1).strip() if m_ret.group(1) else 'Fiscal'
+                                    amt_val = self._to_float(m_ret.group(2).strip())
+                                    if amt_val > 0:
+                                        medios_dict[f"Retención {concept_raw.title()}"] = amt_val
 
                         return {
                             'recibo_id': recibo_id,
@@ -5296,6 +5313,36 @@ class DataManager:
         total_gastos_comprados = sum(self._to_float(r.get('Total', 0)) for r in egresos)
         saldo_favor_compensado = max(0.0, total_gastos_comprados - egresos_pagados)
 
+        # Retenciones fiscales acumuladas (Ganancias vs IVA)
+        ret_ganancias = 0.0
+        ret_iva = 0.0
+        for r in ingresos:
+            if target_year:
+                dt = r.get('_dt')
+                if dt and dt.year != target_year:
+                    continue
+            medio_str = str(self._get_row_prop(r, ['Medios de pago aplicados', 'Medio cobro', 'Medio de pago', 'Forma de pago']) or '')
+            obs_str = str(self._get_row_prop(r, ['Observaciones']) or '')
+            combined_txt = f"{medio_str} | {obs_str}"
+            
+            m_gan = re.search(r'Retenci[oó]n\s+Ganancias?[:\s]*\$?\s*([\d\.,]+)', combined_txt, re.IGNORECASE)
+            if m_gan:
+                ret_ganancias += parse_money_val(m_gan.group(1))
+            
+            m_iva = re.search(r'Retenci[oó]n\s+IVA[:\s]*\$?\s*([\d\.,]+)', combined_txt, re.IGNORECASE)
+            if m_iva:
+                ret_iva += parse_money_val(m_iva.group(1))
+
+            if not m_gan and not m_iva:
+                m_gen = re.search(r'Retenci[oó]n\s*(?:Fiscal|Impositiva)?[:\s]*\$?\s*([\d\.,]+)', combined_txt, re.IGNORECASE)
+                if m_gen:
+                    ret_ganancias += parse_money_val(m_gen.group(1))
+
+        retenciones_fiscales = {
+            "Retención Ganancias": round(ret_ganancias, 2),
+            "Retención IVA": round(ret_iva, 2)
+        }
+
         return {
             "kpis": {
                 "facturado_neto": round(facturado_neto, 2),
@@ -5318,7 +5365,8 @@ class DataManager:
             "actividades": actividades,
             "top_clientes": top_clientes,
             "consumo_unidades": consumo_unidades,
-            "estado_cheques": estado_cheques
+            "estado_cheques": estado_cheques,
+            "retenciones_fiscales": retenciones_fiscales
         }
 
     def get_sheet_data(self, sheet_name):
@@ -8950,99 +8998,104 @@ class DataManager:
         _, ing_rows = self.get_sheet_data('INGRESOS')
         if not ing_rows and wb and 'INGRESOS' in wb.sheetnames:
             _, ing_rows = self._read_sheet_rows(wb['INGRESOS'])
-            logged_refs = set(m['ref_id'] for m in all_movs if m['ref_id'])
-            for r in ing_rows:
-                tipo_comp = str(self._get_row_prop(r, ['Tipo comprobante', 'Tipo']) or '').strip()
-                
-                # Skip 'Entrega CC' rows (which are cash inflows generated by CC payments)
-                if tipo_comp == 'Entrega CC':
-                    continue
 
-                c_name = self._get_row_prop(r, ['Cliente', 'Razó­n social / Nombre', 'Nombre'])
-                if str(c_name or '').strip().lower() == client_norm:
-                    ing_id = self._get_row_prop(r, ['ID ingreso', 'ID'])
-                    if ing_id and ing_id not in logged_refs:
-                        f_ing = self._get_row_prop(r, ['Fecha emisión', 'Fecha emisió­n', 'Fecha cobro / depósito', 'Fecha cobro', 'Fecha'])
-                        con = self._get_row_prop(r, ['Concepto / Descripción del servicio', 'Actividad', 'Concepto'])
-                        est_cobro = str(self._get_row_prop(r, ['Estado cobro', 'Estado'])).lower()
-                        ref_cc = str(self._get_row_prop(r, ['ID acuerdo', 'Observaciones']) or '').strip()
-                        
-                        m_tot = self._to_float(self._get_row_prop(r, ['Total', 'Importe total con IVA', 'Total con IVA', 'Importe total', 'Total con IVA ($)', 'Monto Total']))
-                        if m_tot <= 0:
-                            m_neto = self._to_float(self._get_row_prop(r, ['Neto', 'Importe neto', 'Neto gravado']))
-                            m_iva = self._to_float(self._get_row_prop(r, ['IVA', 'Importe IVA']))
-                            iva_pct = self._to_float(self._get_row_prop(r, ['IVA %', 'Porcentaje IVA (%)', 'Porcentaje IVA']), 21)
-                            if m_iva <= 0 and m_neto > 0:
-                                m_iva = m_neto * (iva_pct / 100.0)
-                            m_fact = m_neto + m_iva
+        logged_refs = set(m['ref_id'] for m in all_movs if m.get('ref_id'))
+        for r in (ing_rows or []):
+            tipo_comp = str(self._get_row_prop(r, ['Tipo comprobante', 'Tipo']) or '').strip()
+            
+            # Skip 'Entrega CC' rows (which are cash inflows generated by CC payments)
+            if tipo_comp == 'Entrega CC':
+                continue
+
+            c_name = self._get_row_prop(r, ['Cliente', 'Razon social / Nombre', 'Nombre'])
+            if str(c_name or '').strip().lower() == client_norm:
+                ing_id = self._get_row_prop(r, ['ID ingreso', 'ID'])
+                if ing_id and ing_id not in logged_refs:
+                    f_ing = self._get_row_prop(r, ['Fecha emision', 'Fecha emisión', 'Fecha cobro / depósito', 'Fecha cobro', 'Fecha'])
+                    con = self._get_row_prop(r, ['Concepto / Descripción del servicio', 'Actividad', 'Concepto'])
+                    est_cobro = str(self._get_row_prop(r, ['Estado cobro', 'Estado'])).lower()
+                    ref_cc = str(self._get_row_prop(r, ['ID acuerdo', 'Observaciones']) or '').strip()
+                    nro_fact = self._get_row_prop(r, ['N° factura ARCA', 'Factura', 'nro_factura_arca'])
+                    fact_label = f"Factura {nro_fact}" if nro_fact and nro_fact != ing_id else f"Factura {ing_id}"
+                    
+                    m_tot = self._to_float(self._get_row_prop(r, ['Total', 'Importe total con IVA', 'Total con IVA', 'Importe total', 'Total con IVA ($)', 'Monto Total']))
+                    if m_tot <= 0:
+                        m_neto = self._to_float(self._get_row_prop(r, ['Neto', 'Importe neto', 'Neto gravado']))
+                        m_iva = self._to_float(self._get_row_prop(r, ['IVA', 'Importe IVA']))
+                        iva_pct = self._to_float(self._get_row_prop(r, ['IVA %', 'Porcentaje IVA (%)', 'Porcentaje IVA']), 21)
+                        if m_iva <= 0 and m_neto > 0:
+                            m_iva = m_neto * (iva_pct / 100.0)
+                        m_fact = m_neto + m_iva
+                    else:
+                        m_fact = m_tot
+
+                    m_cob = self._to_float(self._get_row_prop(r, ['Importe cobrado', 'Monto']))
+                    is_adelanto = self._is_adelanto_entry(r)
+                    
+                    # Invoice charge (DEBE) - ONLY if NOT an advance payment receipt!
+                    if m_fact > 0 and not is_adelanto:
+                        desc_fact = f"{fact_label} - {con}".strip(' -')
+                        all_movs.append({
+                            'id': f"CC-FACT-{ing_id}",
+                            'fecha': f_ing,
+                            'vencimiento': f_ing,
+                            'cliente': cliente_nombre,
+                            'cuit': self._get_row_prop(r, ['CUIT / CUIL', 'CUIT']),
+                            'tipo': 'Facturación / Servicio',
+                            'ref_id': ing_id,
+                            'concepto': desc_fact,
+                            'debe': m_fact,
+                            'haber': 0.0,
+                            'observaciones': ''
+                        })
+
+                    # Payment credit (HABER) ONLY for direct cash/bank cobros (deducting Saldo a Favor applied)
+                    medio_str = str(self._get_row_prop(r, ['Medio cobro', 'Medio de cobro', 'Medio', 'Medio pago', 'Medio de Pago']) or '').strip()
+                    medio_lower = medio_str.lower()
+                    
+                    sf_amt = 0.0
+                    if 'saldo a favor' in medio_lower or 'saldo' in medio_lower:
+                        sf_match = re.search(r'Saldo a Favor C\/C:\s*\$?([\d\.,]+)', medio_str, re.IGNORECASE)
+                        if sf_match:
+                            raw_sf = sf_match.group(1).strip()
+                            if ',' in raw_sf and '.' in raw_sf:
+                                if raw_sf.rfind('.') > raw_sf.rfind(','):
+                                    raw_sf = raw_sf.replace(',', '')
+                                else:
+                                    raw_sf = raw_sf.replace('.', '').replace(',', '.')
+                            elif ',' in raw_sf:
+                                raw_sf = raw_sf.replace(',', '.')
+                            try:
+                                sf_amt = float(raw_sf)
+                            except Exception:
+                                sf_amt = 0.0
+
+                    real_cash_cobro = max(0.0, m_cob - sf_amt)
+
+                    if ('cobrado' in est_cobro or 'parcial' in est_cobro) and real_cash_cobro > 0 and not (ref_cc.startswith('CC-') or 'Cuentas Corrientes' in ref_cc):
+                        f_cobro = self._get_row_prop(r, ['Fecha cobro / depósito', 'Fecha cobro']) or f_ing
+                        if sf_amt > 0:
+                            cash_part_str = re.sub(r'\s*\+\s*Saldo a Favor C\/C:\s*\$?[\d\.,]+', '', medio_str, flags=re.IGNORECASE).strip()
+                            sf_formatted = f"${sf_amt:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+                            pago_tipo = f"Pago Parcial / {cash_part_str}" if 'parcial' in est_cobro else f"Pago / {cash_part_str}"
+                            pago_concepto = f"Cobro Parcial de {fact_label} vía {cash_part_str} (+ {sf_formatted} imputados de Saldo a Favor preexistente)" if 'parcial' in est_cobro else f"Cobro de {fact_label} vía {cash_part_str} (+ {sf_formatted} imputados de Saldo a Favor preexistente)"
                         else:
-                            m_fact = m_tot
-
-                        m_cob = self._to_float(self._get_row_prop(r, ['Importe cobrado', 'Monto']))
-                        is_adelanto = self._is_adelanto_entry(r)
+                            pago_tipo = f"Seña / Adelanto ({medio_str})" if is_adelanto else (f"Pago Parcial / {medio_str}" if 'parcial' in est_cobro else f"Pago / {medio_str}")
+                            pago_concepto = f"Seña / Adelanto cobrado vía {medio_str}" if is_adelanto else (f"Cobro Parcial de {fact_label} vía {medio_str}" if 'parcial' in est_cobro else f"Cobro de {fact_label} vía {medio_str}")
                         
-                        # Invoice charge (DEBE) - ONLY if NOT an advance payment receipt!
-                        if m_fact > 0 and not is_adelanto:
-                            all_movs.append({
-                                'id': f"CC-FACT-{ing_id}",
-                                'fecha': f_ing,
-                                'vencimiento': f_ing,
-                                'cliente': cliente_nombre,
-                                'cuit': self._get_row_prop(r, ['CUIT / CUIL', 'CUIT']),
-                                'tipo': 'Facturación / Servicio',
-                                'ref_id': ing_id,
-                                'concepto': f"Factura {ing_id} - {con}".strip(' -'),
-                                'debe': m_fact,
-                                'haber': 0.0,
-                                'observaciones': ''
-                            })
-
-                        # Payment credit (HABER) ONLY for direct cash/bank cobros (deducting Saldo a Favor applied)
-                        medio_str = str(self._get_row_prop(r, ['Medio cobro', 'Medio de cobro', 'Medio', 'Medio pago', 'Medio de Pago']) or '').strip()
-                        medio_lower = medio_str.lower()
-                        
-                        sf_amt = 0.0
-                        if 'saldo a favor' in medio_lower or 'saldo' in medio_lower:
-                            sf_match = re.search(r'Saldo a Favor C\/C:\s*\$?([\d\.,]+)', medio_str, re.IGNORECASE)
-                            if sf_match:
-                                raw_sf = sf_match.group(1).strip()
-                                if ',' in raw_sf and '.' in raw_sf:
-                                    if raw_sf.rfind('.') > raw_sf.rfind(','):
-                                        raw_sf = raw_sf.replace(',', '')
-                                    else:
-                                        raw_sf = raw_sf.replace('.', '').replace(',', '.')
-                                elif ',' in raw_sf:
-                                    raw_sf = raw_sf.replace(',', '.')
-                                try:
-                                    sf_amt = float(raw_sf)
-                                except Exception:
-                                    sf_amt = 0.0
-
-                        real_cash_cobro = max(0.0, m_cob - sf_amt)
-
-                        if ('cobrado' in est_cobro or 'parcial' in est_cobro) and real_cash_cobro > 0 and not (ref_cc.startswith('CC-') or 'Cuentas Corrientes' in ref_cc):
-                            if sf_amt > 0:
-                                cash_part_str = re.sub(r'\s*\+\s*Saldo a Favor C\/C:\s*\$?[\d\.,]+', '', medio_str, flags=re.IGNORECASE).strip()
-                                sf_formatted = f"${sf_amt:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
-                                pago_tipo = f"Pago Parcial / {cash_part_str}" if 'parcial' in est_cobro else f"Pago / {cash_part_str}"
-                                pago_concepto = f"Cobro Parcial de Factura {ing_id} vía {cash_part_str} (+ {sf_formatted} imputados de Saldo a Favor preexistente)" if 'parcial' in est_cobro else f"Cobro de Factura {ing_id} vía {cash_part_str} (+ {sf_formatted} imputados de Saldo a Favor preexistente)"
-                            else:
-                                pago_tipo = f"Seña / Adelanto ({medio_str})" if is_adelanto else (f"Pago Parcial / {medio_str}" if 'parcial' in est_cobro else f"Pago / {medio_str}")
-                                pago_concepto = f"Seña / Adelanto cobrado vía {medio_str}" if is_adelanto else (f"Cobro Parcial de Factura {ing_id} vía {medio_str}" if 'parcial' in est_cobro else f"Cobro de Factura {ing_id} vía {medio_str}")
-                            
-                            all_movs.append({
-                                'id': f"CC-PAGO-{ing_id}",
-                                'fecha': f_ing,
-                                'vencimiento': f_ing,
-                                'cliente': cliente_nombre,
-                                'cuit': self._get_row_prop(r, ['CUIT / CUIL', 'CUIT']),
-                                'tipo': pago_tipo,
-                                'ref_id': ing_id,
-                                'concepto': pago_concepto,
-                                'debe': 0.0,
-                                'haber': real_cash_cobro,
-                                'observaciones': ''
-                            })
+                        all_movs.append({
+                            'id': f"CC-PAGO-{ing_id}",
+                            'fecha': f_cobro,
+                            'vencimiento': f_cobro,
+                            'cliente': cliente_nombre,
+                            'cuit': self._get_row_prop(r, ['CUIT / CUIL', 'CUIT']),
+                            'tipo': pago_tipo,
+                            'ref_id': ing_id,
+                            'concepto': pago_concepto,
+                            'debe': 0.0,
+                            'haber': real_cash_cobro,
+                            'observaciones': ''
+                        })
 
         # Sort movements by date
         all_movs.sort(key=lambda x: str(x.get('fecha') or ''))
@@ -9193,7 +9246,7 @@ class DataManager:
                 tipo_comp = str(self._get_row_prop(r, ['Tipo comprobante', 'Tipo']) or '').strip()
                 if tipo_comp == 'Entrega CC':
                     continue
-                if est in ['PENDIENTE', 'PENDIENTE ARCA', 'COBRADO PARCIAL', 'POR COBRAR', 'FACTURADO / SERVICIO']:
+                if any(k in est for k in ['PENDIENTE', 'PARCIAL', 'POR COBRAR', 'FACTURADO']) or (est != 'COBRADO' and est != ''):
                     ing_id = self._get_row_prop(r, ['ID ingreso', 'ID'])
                     nro_fact = self._get_row_prop(r, ['N° factura ARCA', 'Factura']) or ing_id
                     f_ing = self._get_row_prop(r, ['Fecha emisión', 'Fecha'])
@@ -9561,6 +9614,10 @@ class DataManager:
             lbl_l = label_str.lower()
             full_l = full_str.lower()
             
+            # Protección de Tesorería: Retenciones impositivas y saldos a favor NUNCA suman a cuentas bancarias o cajas
+            if any(k in lbl_l for k in ['retenci', 'retencion', 'retención', 'saldo a favor', 'credito fiscal', 'descuento']):
+                return False
+
             if nomb_l in full_l or cid.lower() in full_l:
                 if tipo == 'Banco' and ('cheque' in lbl_l or 'echeq' in lbl_l or 'e-cheq' in lbl_l):
                     return False
@@ -9605,6 +9662,8 @@ class DataManager:
                         matched_amount += item_amt
             return matched_amount
         else:
+            if any(k in med_l for k in ['retenci', 'retencion', 'retención', 'saldo a favor', 'credito fiscal']):
+                return 0.0
             if matches_acc(med_orig, med_orig):
                 return m_total
             return 0.0

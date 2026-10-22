@@ -187,11 +187,13 @@ function renderFacturacionTable(rows) {
             `;
         }
 
+        const tipoBadge = (tipoComp && !isNoFiscal) ? `<span class="block text-[10px] text-slate-500 font-semibold tracking-wide uppercase">${tipoComp}</span>` : '';
+
         return `
             <tr class="${rowBgClass} border-b transition-all text-xs">
                 <td class="px-3 py-2.5 font-bold ${isPendingBilling ? 'text-amber-950' : 'text-navy'} whitespace-nowrap">${iid}</td>
                 <td class="px-3 py-2.5 whitespace-nowrap text-slate-600">${formatDateAR(fecha)}</td>
-                <td class="px-3 py-2.5 whitespace-nowrap">${nroDisplay}</td>
+                <td class="px-3 py-2.5 whitespace-nowrap">${nroDisplay}${tipoBadge}</td>
                 <td class="px-3 py-2.5 font-semibold text-slate-800">${cliente}</td>
                 <td class="px-3 py-2.5 text-slate-500 text-[11px]">${choferUnidad}</td>
                 <td class="px-3 py-2.5 font-medium text-slate-700">${formatARS(neto)}</td>
@@ -219,10 +221,12 @@ function resetFacturacionFilters() {
     const d = document.getElementById('filter-f-desde');
     const h = document.getElementById('filter-f-hasta');
     const e = document.getElementById('filter-f-estado');
+    const t = document.getElementById('filter-f-tipo');
     if (s) s.value = '';
     if (d) d.value = '';
     if (h) h.value = '';
     if (e) e.value = '';
+    if (t) t.value = '';
     lastFacturacionQueryActive = false;
     filterFacturacionTable(120, true);
 }
@@ -254,6 +258,7 @@ function applyFacturacionFilter() {
     const rawQuery = (document.getElementById('search-facturacion')?.value || '').trim();
     const fQuery = rawQuery.length >= 3 ? rawQuery.toLowerCase() : '';
     const fEstado = document.getElementById('filter-f-estado')?.value || '';
+    const fTipo = document.getElementById('filter-f-tipo')?.value || '';
     const fDesde = document.getElementById('filter-f-desde')?.value || '';
     const fHasta = document.getElementById('filter-f-hasta')?.value || '';
 
@@ -262,8 +267,10 @@ function applyFacturacionFilter() {
         const cliente = str(getRowProp(r, ['Cliente'])).toLowerCase();
         const nroFactura = str(getRowProp(r, ['N° factura ARCA', 'Factura'])).toLowerCase();
         const st = str(getRowProp(r, ['Estado cobro'])).trim().toUpperCase();
+        const tipoComp = str(getRowProp(r, ['Tipo comprobante', 'Tipo'])).trim();
+        const tipoCompLower = tipoComp.toLowerCase();
 
-        const fullText = `${iid} ${cliente} ${nroFactura}`;
+        const fullText = `${iid} ${cliente} ${nroFactura} ${tipoCompLower}`;
         if (fQuery && !fullText.includes(fQuery)) return false;
 
         const isPendingBilling = !nroFactura || nroFactura.includes('pendiente') || st.includes('PENDIENTE DE FACTURA');
@@ -273,6 +280,17 @@ function applyFacturacionFilter() {
         if (fEstado === 'pendiente_arca' && !isPendingBilling) return false;
         if (fEstado === 'factura_emitida' && !isBilled) return false;
         if (fEstado === 'enviado_ingresos' && !isTransferred) return false;
+
+        // Filtro por Tipo de Comprobante / Factura
+        if (fTipo) {
+            const fTipoLower = fTipo.toLowerCase();
+            const isNoFiscal = nroFactura.includes('comprobante-interno') || tipoCompLower.includes('no fiscal') || tipoCompLower.includes('interno') || st.includes('NO FISCAL');
+            if (fTipoLower.includes('interno') || fTipoLower.includes('no fiscal')) {
+                if (!isNoFiscal) return false;
+            } else {
+                if (!tipoCompLower.includes(fTipoLower)) return false;
+            }
+        }
 
         if (fDesde || fHasta) {
             const rawDate = getRowProp(r, ['Fecha emisión', 'Fecha cobro', 'Fecha']) || '';
