@@ -2579,25 +2579,27 @@
 
                         <div>
                             <label class="font-semibold text-slate-700">Importe Neto Gravado ($) *</label>
-                            <input type="number" step="0.01" id="fd-neto" oninput="calcFacturaDirectaTotal()" required placeholder="0.00" class="w-full mt-1 p-2.5 bg-white border border-slate-200 rounded-lg font-bold outline-none focus:ring-2 focus:ring-navy">
+                            <input type="number" step="0.01" id="fd-neto" oninput="calcFacturaDirectaFromNeto()" required placeholder="0.00" class="w-full mt-1 p-2.5 bg-white border border-slate-200 rounded-lg font-bold outline-none focus:ring-2 focus:ring-navy">
                         </div>
 
                         <div>
                             <label class="font-semibold text-slate-700">Alícuota IVA (%)</label>
-                            <select id="fd-iva-pct" onchange="calcFacturaDirectaTotal()" class="w-full mt-1 p-2.5 bg-white border border-slate-200 rounded-lg font-medium outline-none focus:ring-2 focus:ring-navy">
+                            <select id="fd-iva-pct" onchange="onFacturaDirectaIvaChanged()" class="w-full mt-1 p-2.5 bg-white border border-slate-200 rounded-lg font-medium outline-none focus:ring-2 focus:ring-navy">
                                 <option value="21" selected>21%</option>
                                 <option value="10.5">10.5%</option>
                                 <option value="0">0% (Exento)</option>
                             </select>
                         </div>
 
-                        <div class="sm:col-span-2 bg-emerald-50 p-3 rounded-lg border border-emerald-200 flex justify-between items-center font-bold text-emerald-950">
+                        <div class="sm:col-span-2 bg-emerald-50 p-3.5 rounded-xl border border-emerald-200 grid grid-cols-1 sm:grid-cols-2 gap-3 items-center text-emerald-950">
                             <div>
-                                <span class="text-xs">IVA: <b id="fd-iva-calc">$0.00</b></span>
+                                <label class="text-xs font-semibold text-slate-600 block mb-0.5">IVA Calculado ($)</label>
+                                <span id="fd-iva-calc" class="text-base text-emerald-800 font-bold">$0.00</span>
                             </div>
-                            <div class="text-right">
-                                <span class="text-xs text-slate-600 mr-2">Total Factura:</span>
-                                <span id="fd-total-calc" class="text-base text-emerald-900 font-black">$0.00</span>
+                            <div>
+                                <label class="text-xs font-bold text-slate-700 block mb-0.5">Total Factura Final ($) *</label>
+                                <input type="number" step="0.01" id="fd-total" oninput="calcFacturaDirectaFromTotal()" placeholder="0.00" class="w-full p-2 bg-white border border-emerald-300 rounded-lg font-black text-emerald-900 outline-none focus:ring-2 focus:ring-emerald-500">
+                                <p class="text-[10px] text-slate-500 mt-0.5">Calcula automáticamente en ambas direcciones</p>
                             </div>
                         </div>
                     </div>
@@ -2781,9 +2783,13 @@
                     <label class="font-semibold text-slate-700"><i class="fa-solid fa-money-bill-1-wave text-emerald-600 mr-1"></i>Efectivo ($)</label>
                     <input type="number" step="0.01" id="ic-monto-efectivo" oninput="calcCobroTotal()" placeholder="0.00" class="w-full mt-1 p-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-slate-800 outline-none focus:ring-2 focus:ring-emerald-600">
                 </div>
-                <div class="col-span-2">
+                <div>
                     <label class="font-semibold text-slate-700"><i class="fa-solid fa-credit-card text-indigo-600 mr-1"></i>Tarjeta / Otros ($)</label>
                     <input type="number" step="0.01" id="ic-monto-tarjeta" oninput="calcCobroTotal()" placeholder="0.00" class="w-full mt-1 p-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-slate-800 outline-none focus:ring-2 focus:ring-emerald-600">
+                </div>
+                <div>
+                    <label class="font-semibold text-slate-700"><i class="fa-solid fa-receipt text-amber-600 mr-1"></i>Retenciones Fiscales ($)</label>
+                    <input type="number" step="0.01" id="ic-monto-retenciones" oninput="calcCobroTotal()" placeholder="0.00 (Ganancias, IIBB)" class="w-full mt-1 p-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-slate-800 outline-none focus:ring-2 focus:ring-emerald-600">
                 </div>
 
                 <!-- Hidden inputs for backward compatibility -->
@@ -4637,13 +4643,13 @@
     </div>
 
     <!-- ECONCATIVO Modular Application Scripts -->
-    <script src="/static/js/core.js?v=supabase_v35"></script>
+    <script src="/static/js/core.js?v=supabase_v36"></script>
     <script src="/static/js/dashboard.js?v=supabase_v35"></script>
     <script src="/static/js/maestros.js?v=supabase_v40"></script>
     <script src="/static/js/presupuestos.js?v=supabase_v35"></script>
     <script src="/static/js/viajes.js?v=supabase_v42"></script>
-    <script src="/static/js/facturacion.js?v=supabase_v42"></script>
-    <script src="/static/js/ingresos.js?v=supabase_v37"></script>
+    <script src="/static/js/facturacion.js?v=supabase_v43"></script>
+    <script src="/static/js/ingresos.js?v=supabase_v39"></script>
     <script src="/static/js/egresos.js?v=supabase_v35"></script>
     <script src="/static/js/ordenes_compra.js?v=supabase_v35"></script>
     <script src="/static/js/cheques.js?v=supabase_v35"></script>

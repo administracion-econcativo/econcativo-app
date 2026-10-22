@@ -360,6 +360,7 @@ function calcCobroTotal() {
     const transf = parseFloat(document.getElementById('ic-monto-transferencia')?.value) || 0;
     const efectivo = parseFloat(document.getElementById('ic-monto-efectivo')?.value) || 0;
     const tarjeta = parseFloat(document.getElementById('ic-monto-tarjeta')?.value) || 0;
+    const retenciones = parseFloat(document.getElementById('ic-monto-retenciones')?.value) || 0;
 
     // Calcular suma de todos los cheques agregados dinámicamente
     let totalCheques = 0;
@@ -388,7 +389,7 @@ function calcCobroTotal() {
     const sfInput = document.getElementById('ic-monto-saldo-favor');
     const saldoFavor = (sfCheck && sfCheck.checked && sfInput) ? (parseFloat(sfInput.value) || 0) : 0;
 
-    const totalSum = transf + totalCheques + efectivo + tarjeta + saldoFavor;
+    const totalSum = transf + totalCheques + efectivo + tarjeta + saldoFavor + retenciones;
     const sumEl = document.getElementById('ic-sum-calc');
     if (sumEl) sumEl.innerText = formatARS(totalSum);
 
@@ -779,6 +780,7 @@ async function submitCobro(e) {
     const transf = parseFloat(document.getElementById('ic-monto-transferencia')?.value) || 0;
     const efectivo = parseFloat(document.getElementById('ic-monto-efectivo')?.value) || 0;
     const tarjeta = parseFloat(document.getElementById('ic-monto-tarjeta')?.value) || 0;
+    const retenciones = parseFloat(document.getElementById('ic-monto-retenciones')?.value) || 0;
 
     // Recolectar cheques dinámicos
     const chequesList = [];
@@ -821,7 +823,7 @@ async function submitCobro(e) {
     }
 
     const totalCheques = chequesList.reduce((acc, c) => acc + c.monto, 0);
-    const totalCobro = transf + totalCheques + efectivo + tarjeta + sfVal;
+    const totalCobro = transf + totalCheques + efectivo + tarjeta + sfVal + retenciones;
     if (totalCobro <= 0) {
         showToast("Debes ingresar un importe mayor a 0 en al menos un medio de pago.", "error");
         return;
@@ -841,11 +843,19 @@ async function submitCobro(e) {
         monto_transferencia: transf,
         monto_efectivo: efectivo,
         monto_tarjeta: tarjeta,
+        monto_retenciones: retenciones,
         monto_saldo_favor: sfVal,
         cheques: chequesList,
         cuenta_destino: document.getElementById('ic-cuenta-destino')?.value || '',
         observaciones: document.getElementById('ic-observaciones').value
     };
+
+    const btnSubmit = document.querySelector('#form-cobro button[type="submit"]');
+    if (btnSubmit) {
+        btnSubmit.disabled = true;
+        btnSubmit.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i> Guardando...';
+    }
+    showLoading("Registrando Cobro", "Guardando medios de pago y actualizando comprobante...");
 
     try {
         const res = await fetch('/api/ingresos/cobro/add', {
@@ -867,6 +877,12 @@ async function submitCobro(e) {
         }
     } catch (err) {
         showToast("Error al registrar el cobro.", "error");
+    } finally {
+        hideLoading();
+        if (btnSubmit) {
+            btnSubmit.disabled = false;
+            btnSubmit.innerHTML = '<i class="fa-solid fa-check mr-1"></i> Confirmar e Registrar en Ingresos';
+        }
     }
 }
 

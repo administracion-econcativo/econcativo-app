@@ -1778,8 +1778,12 @@ class DataManager:
 
         neto_val = float(idata['neto']) if idata.get('neto') else 0.0
         pct_val = float(idata.get('iva_pct', 21)) if idata.get('iva_pct') is not None else 21.0
-        iva_amt = round(neto_val * (pct_val / 100.0), 2)
-        total_val = round(neto_val + iva_amt, 2)
+        if idata.get('total') and float(idata['total']) > 0:
+            total_val = round(float(idata['total']), 2)
+            iva_amt = round(total_val - neto_val, 2)
+        else:
+            iva_amt = round(neto_val * (pct_val / 100.0), 2)
+            total_val = round(neto_val + iva_amt, 2)
 
         punto_venta = '0001'
         if '-' in nro and nro != 'COMPROBANTE-INTERNO':
@@ -2213,6 +2217,7 @@ class DataManager:
         m_cheque = self._to_float(cdata.get('monto_cheque'))
         m_efectivo = self._to_float(cdata.get('monto_efectivo'))
         m_tarjeta = self._to_float(cdata.get('monto_tarjeta'))
+        m_retenciones = self._to_float(cdata.get('monto_retenciones'))
         m_saldo_favor = self._to_float(cdata.get('monto_saldo_favor'))
 
         # Normalize cheques list (support multiple cheques / e-cheqs)
@@ -2254,7 +2259,7 @@ class DataManager:
                 })
 
         total_cheques = sum(ch['monto'] for ch in processed_cheques_input)
-        total_dinero_nuevo = m_transf + m_efectivo + m_tarjeta + total_cheques
+        total_dinero_nuevo = m_transf + m_efectivo + m_tarjeta + total_cheques + m_retenciones
         total_cobrado_ingresado = total_dinero_nuevo + m_saldo_favor
         
         # Build description of combined payment methods
@@ -2263,6 +2268,7 @@ class DataManager:
         if m_transf > 0: medios_list.append(f"Transferencia: ${m_transf:,.2f}")
         if m_efectivo > 0: medios_list.append(f"Efectivo: ${m_efectivo:,.2f}")
         if m_tarjeta > 0: medios_list.append(f"Tarjeta: ${m_tarjeta:,.2f}")
+        if m_retenciones > 0: medios_list.append(f"Retención Impositiva: ${m_retenciones:,.2f}")
         for ch in processed_cheques_input:
             ch_tipo = ch['tipo']
             ch_monto = ch['monto']
@@ -2339,11 +2345,17 @@ class DataManager:
                     tot_adelantos = 0.0
 
         if 'parcial' in prev_estado.lower() and total_cobrado_ingresado > 0:
-            importe_final = prev_cobrado + total_dinero_nuevo
+            # If prev_cobrado already contains this amount or adding would overshoot total_factura, do not double-add
+            if abs(total_dinero_nuevo - prev_cobrado) < 0.01 or (prev_cobrado + total_dinero_nuevo > total_factura + 0.01):
+                importe_final = total_dinero_nuevo
+            else:
+                importe_final = prev_cobrado + total_dinero_nuevo
         else:
             importe_final = total_dinero_nuevo if total_cobrado_ingresado > 0 else self._to_float(cdata.get('importe_cobrado'), total_factura)
 
         total_cobrado_acumulado = importe_final + m_saldo_favor + tot_adelantos
+        if total_factura > 0 and total_cobrado_acumulado > total_factura:
+            total_cobrado_acumulado = total_factura
         saldo = max(0.0, total_factura - total_cobrado_acumulado)
 
         if prev_medio and 'parcial' in prev_estado.lower() and medio_str not in prev_medio:
@@ -2430,14 +2442,24 @@ class DataManager:
                         next_chq_num = 1
 
                     for ch in processed_cheques_input:
-                        cid = f"CHQ-{next_chq_num:06d}"
-                        next_chq_num += 1
                         ch_tipo = ch['tipo']
                         ch_monto = ch['monto']
                         ch_nro = ch['nro']
                         ch_banco = ch['banco']
                         ch_venc = ch['fecha_venc']
                         cuit_chq = cdata.get('cuit_emisor_cheque') or cuit_final or None
+
+                        if ch_nro and ch_banco:
+                            chk_dup = conn.execute(text("""
+                                SELECT id_cheque FROM cheques 
+                                WHERE id_ingreso_origen = :iid AND nro_cheque = :nro AND banco = :banco AND monto = :monto
+                                LIMIT 1
+                            """), {'iid': i_id_clean, 'nro': ch_nro, 'banco': ch_banco, 'monto': ch_monto}).fetchone()
+                            if chk_dup:
+                                continue
+
+                        cid = f"CHQ-{next_chq_num:06d}"
+                        next_chq_num += 1
 
                         conn.execute(text("""
                             INSERT INTO cheques (
@@ -2793,6 +2815,16 @@ class DataManager:
                                     medios_dict[k.strip()] = self._to_float(v_clean)
                         elif medio_str:
                             medios_dict[medio_str.strip()] = float(r.get('importe_cobrado') or 0)
+                        
+                        # Parse retenciones from observaciones if not present in medios_dict
+                        if 'retenci' not in str(medios_dict).lower() and r.get('observaciones'):
+                            obs_txt = str(r.get('observaciones') or '')
+                            m_ret = re.search(r'RETENCI[OÓ]N\s*([A-Za-z\s]+)?[:\$]?\s*\$?([\d\.,]+)', obs_txt, re.IGNORECASE)
+                            if m_ret:
+                                concept_raw = m_ret.group(1).strip() if m_ret.group(1) else 'Fiscal'
+                                amt_val = self._to_float(m_ret.group(2).strip())
+                                if amt_val > 0:
+                                    medios_dict[f"Retención {concept_raw.title()}"] = amt_val
 
                         return {
                             'recibo_id': recibo_id,
@@ -2846,6 +2878,15 @@ class DataManager:
                         medios_dict[k.strip()] = self._to_float(v_clean)
             elif medio_str:
                 medios_dict[medio_str.strip()] = float(ws_i.cell(target_row, 18).value or 0)
+
+            if 'retenci' not in str(medios_dict).lower():
+                obs_txt = str(ws_i.cell(target_row, 28).value or '')
+                m_ret = re.search(r'RETENCI[OÓ]N\s*([A-Za-z\s]+)?[:\$]?\s*\$?([\d\.,]+)', obs_txt, re.IGNORECASE)
+                if m_ret:
+                    concept_raw = m_ret.group(1).strip() if m_ret.group(1) else 'Fiscal'
+                    amt_val = self._to_float(m_ret.group(2).strip())
+                    if amt_val > 0:
+                        medios_dict[f"Retención {concept_raw.title()}"] = amt_val
 
             return {
                 'recibo_id': recibo_id,

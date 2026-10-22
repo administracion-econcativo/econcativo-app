@@ -418,7 +418,11 @@ def generate_recibo_pdf(recibo_data):
             if m_val > 0:
                 medios_rows.append([Paragraph(str(m_name), val_style), Paragraph(f"${m_val:,.2f}", val_style)])
 
-    total_recibido = recibo_data.get('importe_cobrado', recibo_data.get('total', 0))
+    if medios_dict:
+        total_recibido = sum(m_val for m_val in medios_dict.values() if m_val > 0)
+    else:
+        total_recibido = recibo_data.get('importe_cobrado') or recibo_data.get('total', 0)
+
     medios_rows.append([
         Paragraph("<b>TOTAL CANCELADO Y RECIBIDO EN CAJA</b>", ParagraphStyle('TotLabel', parent=label_style, fontSize=10, textColor=EMERALD)),
         Paragraph(f"<b>${total_recibido:,.2f}</b>", ParagraphStyle('TotVal', parent=label_style, fontSize=11, textColor=EMERALD, alignment=2))

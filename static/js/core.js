@@ -1505,3 +1505,10 @@ document.addEventListener('input', function(e) {
         }
     }
 }, true);
+
+// Prevenir cambio accidental de valores al hacer scroll con la rueda del mouse sobre inputs numéricos
+document.addEventListener('wheel', function(e) {
+    if (document.activeElement && document.activeElement.matches && document.activeElement.matches('input[type="number"]')) {
+        document.activeElement.blur();
+    }
+}, { passive: true });

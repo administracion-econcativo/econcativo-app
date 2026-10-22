@@ -429,17 +429,64 @@ function openNuevaFacturaDirectaModal() {
     openModal('modal-factura-directa');
 }
 
-function calcFacturaDirectaTotal() {
-    const neto = parseFloat(document.getElementById('fd-neto')?.value) || 0.0;
+let _fdLastEdited = 'neto';
+
+function calcFacturaDirectaFromNeto() {
+    _fdLastEdited = 'neto';
+    const netoInput = document.getElementById('fd-neto');
+    const totInput = document.getElementById('fd-total');
+    const ivaEl = document.getElementById('fd-iva-calc');
     const pct = parseFloat(document.getElementById('fd-iva-pct')?.value) || 0.0;
+
+    const neto = parseFloat(netoInput?.value) || 0.0;
+    if (neto <= 0) {
+        if (totInput) totInput.value = '';
+        if (ivaEl) ivaEl.innerText = '$0.00';
+        return;
+    }
+
     const ivaAmt = Math.round(neto * (pct / 100.0) * 100) / 100;
     const total = Math.round((neto + ivaAmt) * 100) / 100;
 
-    const ivaEl = document.getElementById('fd-iva-calc');
-    const totEl = document.getElementById('fd-total-calc');
-
+    if (totInput) totInput.value = total.toFixed(2);
     if (ivaEl) ivaEl.innerText = typeof formatARS === 'function' ? formatARS(ivaAmt) : `$${ivaAmt.toFixed(2)}`;
-    if (totEl) totEl.innerText = typeof formatARS === 'function' ? formatARS(total) : `$${total.toFixed(2)}`;
+}
+
+function calcFacturaDirectaFromTotal() {
+    _fdLastEdited = 'total';
+    const netoInput = document.getElementById('fd-neto');
+    const totInput = document.getElementById('fd-total');
+    const ivaEl = document.getElementById('fd-iva-calc');
+    const pct = parseFloat(document.getElementById('fd-iva-pct')?.value) || 0.0;
+
+    const total = parseFloat(totInput?.value) || 0.0;
+    if (total <= 0) {
+        if (netoInput) netoInput.value = '';
+        if (ivaEl) ivaEl.innerText = '$0.00';
+        return;
+    }
+
+    let neto = total;
+    let ivaAmt = 0.0;
+    if (pct > 0) {
+        neto = Math.round((total / (1.0 + pct / 100.0)) * 100) / 100;
+        ivaAmt = Math.round((total - neto) * 100) / 100;
+    }
+
+    if (netoInput) netoInput.value = neto.toFixed(2);
+    if (ivaEl) ivaEl.innerText = typeof formatARS === 'function' ? formatARS(ivaAmt) : `$${ivaAmt.toFixed(2)}`;
+}
+
+function onFacturaDirectaIvaChanged() {
+    if (_fdLastEdited === 'total') {
+        calcFacturaDirectaFromTotal();
+    } else {
+        calcFacturaDirectaFromNeto();
+    }
+}
+
+function calcFacturaDirectaTotal() {
+    calcFacturaDirectaFromNeto();
 }
 
 function toggleFacturaDirectaViajeSection() {
@@ -473,6 +520,7 @@ async function submitNuevaFacturaDirecta(e) {
     const fecha = document.getElementById('fd-fecha')?.value || '';
     const actividad = (document.getElementById('fd-actividad')?.value || '').trim() || 'Facturación Directa';
     const neto = parseFloat(document.getElementById('fd-neto')?.value) || 0.0;
+    const total_input = parseFloat(document.getElementById('fd-total')?.value) || 0.0;
     const iva_pct = parseFloat(document.getElementById('fd-iva-pct')?.value) || 0.0;
     const obs = (document.getElementById('fd-obs')?.value || '').trim();
 
@@ -527,6 +575,7 @@ async function submitNuevaFacturaDirecta(e) {
         fecha_emision: fecha,
         actividad: actividad,
         neto: neto,
+        total: total_input > 0 ? total_input : undefined,
         iva_pct: iva_pct,
         observaciones: obs,
         crear_viaje: crearViaje,
