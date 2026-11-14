@@ -380,28 +380,54 @@ def generate_recibo_pdf(recibo_data):
     story.append(client_table)
     story.append(Spacer(1, 14))
 
-    # Operation / Trip & Service Details Section
-    story.append(Paragraph("DETALLE DE LA OPERACIÓN Y SERVICIO REALIZADO", label_style))
-    story.append(Spacer(1, 4))
-
-    op_table_data = [
-        [Paragraph("<b>ID Operación</b>", label_style), Paragraph("<b>Chofer / Operador</b>", label_style), Paragraph("<b>Unidad / Maquinaria</b>", label_style), Paragraph("<b>Detalle / Actividad</b>", label_style)],
-        [
-            Paragraph(str(recibo_data.get('ingreso_id', '-')), val_style),
-            Paragraph(str(recibo_data.get('chofer', '-')), val_style),
-            Paragraph(str(recibo_data.get('unidad', '-')), val_style),
-            Paragraph(str(recibo_data.get('actividad', '-')), val_style)
+    # Operation / Invoices Breakdown Section
+    if recibo_data.get('facturas_detalle') and len(recibo_data['facturas_detalle']) > 1:
+        story.append(Paragraph("DETALLE DE FACTURAS Y COMPROBANTES CANCELADOS (COBRANZA MÚLTIPLE)", label_style))
+        story.append(Spacer(1, 4))
+        inv_table_data = [
+            [Paragraph("<b>ID Ingreso</b>", label_style), Paragraph("<b>N° Factura ARCA</b>", label_style), Paragraph("<b>Tipo</b>", label_style), Paragraph("<b>Fecha</b>", label_style), Paragraph("<b>Total Factura ($)</b>", label_style), Paragraph("<b>Monto Imputado ($)</b>", label_style)]
         ]
-    ]
-    op_table = Table(op_table_data, colWidths=[100, 140, 120, 180])
-    op_table.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (-1,0), LIGHT_BG),
-        ('PADDING', (0,0), (-1,-1), 6),
-        ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#E2E8F0')),
-        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-    ]))
-    story.append(op_table)
-    story.append(Spacer(1, 14))
+        for fd in recibo_data['facturas_detalle']:
+            inv_table_data.append([
+                Paragraph(str(fd.get('id_ingreso', '-')), val_style),
+                Paragraph(f"<b>{fd.get('nro_factura', '-')}</b>", val_style),
+                Paragraph(str(fd.get('tipo_comprobante', 'Factura')), val_style),
+                Paragraph(_format_date_ar(fd.get('fecha_emision'), default='-'), val_style),
+                Paragraph(f"${float(fd.get('total') or 0):,.2f}", val_style),
+                Paragraph(f"${float(fd.get('importe_cobrado') or 0):,.2f}", val_style)
+            ])
+        inv_table = Table(inv_table_data, colWidths=[80, 110, 80, 70, 100, 100])
+        inv_table.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,0), LIGHT_BG),
+            ('PADDING', (0,0), (-1,-1), 5),
+            ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#E2E8F0')),
+            ('ALIGN', (4,0), (-1,-1), 'RIGHT'),
+            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ]))
+        story.append(inv_table)
+        story.append(Spacer(1, 14))
+    else:
+        story.append(Paragraph("DETALLE DE LA OPERACIÓN Y SERVICIO REALIZADO", label_style))
+        story.append(Spacer(1, 4))
+
+        op_table_data = [
+            [Paragraph("<b>ID Operación</b>", label_style), Paragraph("<b>Chofer / Operador</b>", label_style), Paragraph("<b>Unidad / Maquinaria</b>", label_style), Paragraph("<b>Detalle / Actividad</b>", label_style)],
+            [
+                Paragraph(str(recibo_data.get('ingreso_id', '-')), val_style),
+                Paragraph(str(recibo_data.get('chofer', '-')), val_style),
+                Paragraph(str(recibo_data.get('unidad', '-')), val_style),
+                Paragraph(str(recibo_data.get('actividad', '-')), val_style)
+            ]
+        ]
+        op_table = Table(op_table_data, colWidths=[100, 140, 120, 180])
+        op_table.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,0), LIGHT_BG),
+            ('PADDING', (0,0), (-1,-1), 6),
+            ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#E2E8F0')),
+            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ]))
+        story.append(op_table)
+        story.append(Spacer(1, 14))
 
     # Payment Methods Breakdown Section ("Detalle de Medios de Pago")
     story.append(Paragraph("DESGLOSE DE MEDIOS DE PAGO RECIBIDOS", label_style))

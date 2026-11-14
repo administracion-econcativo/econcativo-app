@@ -135,7 +135,7 @@ function populateTreasurySelectsFromMaster(accounts) {
     }
 
     // Form accounts
-    ['o-cuenta-tesoreria', 'pago-cuenta-origen', 'pago-vuelto-cuenta', 'ic-cuenta-destino', 'pago-cc-cuenta-tesoreria', 'va-cuenta-tesoreria', 'nov-cuenta-id', 'e-vuelto-cuenta', 'fd-cuenta-cobro'].forEach(sId => {
+    ['o-cuenta-tesoreria', 'pago-cuenta-origen', 'pago-vuelto-cuenta', 'ic-cuenta-destino', 'cm-cuenta-destino', 'pago-cc-cuenta-tesoreria', 'va-cuenta-tesoreria', 'nov-cuenta-id', 'e-vuelto-cuenta', 'fd-cuenta-cobro'].forEach(sId => {
         const el = document.getElementById(sId);
         if (el) {
             const curr = el.value;
@@ -393,7 +393,7 @@ function openNuevaUnidadModal() {
     if (titleEl) titleEl.innerHTML = `<i class="fa-solid fa-truck text-amber"></i> Registrar Nueva Unidad / Maquinaria`;
     if (document.getElementById('mu-tipo')) document.getElementById('mu-tipo').value = 'Camión';
     const counterEl = document.getElementById('mu-patente-counter');
-    if (counterEl) counterEl.innerText = '0/7';
+    if (counterEl) counterEl.innerText = '';
     openModal('modal-unidad');
 }
 
@@ -404,10 +404,23 @@ function editUnidad(uid) {
     const patVal = (getRowProp(target, ['Dominio/Patente', 'Patente']) || '').trim().toUpperCase();
     document.getElementById('modal-mu-title').innerHTML = `<i class="fa-solid fa-pen text-amber"></i> Editar Unidad / Maquinaria (${uid})`;
     document.getElementById('mu-id-edit').value = uid;
-    document.getElementById('mu-tipo').value = getRowProp(target, ['Tipo']) || 'Camión';
+    
+    const tipoVal = getRowProp(target, ['Tipo']) || 'Camión';
+    const tipoSelect = document.getElementById('mu-tipo');
+    if (tipoSelect) {
+        const exists = Array.from(tipoSelect.options).some(o => o.value.toLowerCase() === tipoVal.toLowerCase());
+        if (!exists && tipoVal) {
+            const opt = document.createElement('option');
+            opt.value = tipoVal;
+            opt.text = tipoVal;
+            tipoSelect.appendChild(opt);
+        }
+        tipoSelect.value = tipoVal;
+    }
+
     document.getElementById('mu-patente').value = patVal;
     const counterEl = document.getElementById('mu-patente-counter');
-    if (counterEl) counterEl.innerText = `${patVal.length}/7`;
+    if (counterEl) counterEl.innerText = patVal.length ? `${patVal.length} car.` : '';
     document.getElementById('mu-marca').value = getRowProp(target, ['Marca']);
     document.getElementById('mu-modelo').value = getRowProp(target, ['Modelo']);
     document.getElementById('mu-seguro').value = getRowProp(target, ['Seguro vence', 'Vencimiento Seguro']);
@@ -907,28 +920,33 @@ async function submitUnidad(e) {
     e.preventDefault();
     const u_id = document.getElementById('mu-id-edit').value;
     const patenteEl = document.getElementById('mu-patente');
-    const cleanPatente = (patenteEl ? patenteEl.value : '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const cleanPatente = (patenteEl ? patenteEl.value : '').trim().toUpperCase();
+    const tipo = document.getElementById('mu-tipo').value;
+    const marca = (document.getElementById('mu-marca')?.value || '').trim();
+    const modelo = (document.getElementById('mu-modelo')?.value || '').trim();
+    const descripcion = (document.getElementById('mu-descripcion')?.value || '').trim();
 
-    if (!cleanPatente) {
-        showToast("El dominio / patente es obligatorio.", "warning");
-        if (patenteEl) patenteEl.focus();
+    // Si la unidad/maquinaria no tiene patente, debe tener al menos Marca, Modelo o Descripción para identificarla
+    if (!cleanPatente && !marca && !modelo && !descripcion) {
+        showToast("Para registrar una unidad o maquinaria sin patente, completá al menos la Marca, Modelo o Descripción para identificarla.", "warning");
+        if (document.getElementById('mu-marca')) document.getElementById('mu-marca').focus();
         return;
     }
 
-    if (cleanPatente.length > 7) {
-        showToast("La patente no puede tener más de 7 caracteres (máximo admitido en Argentina).", "warning");
+    if (cleanPatente.length > 20) {
+        showToast("El dominio o código interno no puede superar los 20 caracteres.", "warning");
         if (patenteEl) patenteEl.focus();
         return;
     }
 
     const payload = {
-        tipo: document.getElementById('mu-tipo').value,
+        tipo: tipo,
         patente: cleanPatente,
-        marca: document.getElementById('mu-marca').value,
-        modelo: document.getElementById('mu-modelo').value,
+        marca: marca,
+        modelo: modelo,
         seguro_vence: document.getElementById('mu-seguro').value,
         rto_vence: document.getElementById('mu-rto').value,
-        descripcion: document.getElementById('mu-descripcion').value
+        descripcion: descripcion
     };
 
     const endpoint = u_id ? '/api/maestros/unidad/update' : '/api/maestros/unidad/add';
@@ -1562,7 +1580,8 @@ async function switchMasterTab(masterName) {
 function renderMasterRowUnidad(r) {
     const uid = getRowProp(r, ['ID unidad', 'ID']);
     const tipo = getRowProp(r, ['Tipo']) || '-';
-    const patente = getRowProp(r, ['Dominio/Patente', 'Patente']) || '-';
+    const rawPat = (getRowProp(r, ['Dominio/Patente', 'Patente']) || '').trim();
+    const patente = rawPat || '-';
     const marcaMod = `${getRowProp(r, ['Marca']) || ''} ${getRowProp(r, ['Modelo']) || ''}`.trim() || '-';
     const desc = getRowProp(r, ['Descripción']) || '-';
     const seguroBadge = formatExpirationBadge(getRowProp(r, ['Seguro vence', 'Vencimiento Seguro']));

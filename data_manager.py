@@ -2565,7 +2565,443 @@ class DataManager:
         except Exception as excel_err:
             print(f"[registrar_cobro_ingreso Excel mirror warning] {excel_err}")
 
+        self._invalidate_cache()
         return {"status": "success", "id": i_id_clean, "recibo_id": recibo_id, "estado": nuevo_estado, "cobrado": importe_final}
+
+    def get_clientes_con_facturas_pendientes(self):
+        """Returns list of clients that have at least one unpaid or partially paid invoice with positive pending balance."""
+        clientes = []
+        if self.supabase_service and self.supabase_service.is_connected():
+            from sqlalchemy import text
+            try:
+                with self.supabase_service.engine.connect() as conn:
+                    rows = conn.execute(text("""
+                        SELECT cliente,
+                               COUNT(*) as cant_facturas,
+                               SUM(COALESCE(saldo, total - COALESCE(importe_cobrado, 0))) as total_deuda
+                        FROM ingresos
+                        WHERE (estado_cobro IS NULL OR UPPER(TRIM(estado_cobro)) NOT IN ('COBRADO', 'ANULADO'))
+                          AND COALESCE(saldo, total - COALESCE(importe_cobrado, 0)) > 0.01
+                          AND cliente IS NOT NULL AND TRIM(cliente) != ''
+                          AND (tipo_comprobante IS NULL OR (
+                              LOWER(tipo_comprobante) NOT LIKE '%vuelto%' 
+                              AND LOWER(tipo_comprobante) NOT LIKE '%adelanto%'
+                              AND LOWER(tipo_comprobante) NOT LIKE '%seña%'
+                          ))
+                        GROUP BY cliente
+                        ORDER BY cliente ASC
+                    """)).mappings().fetchall()
+                    for r in rows:
+                        clientes.append({
+                            'cliente': r['cliente'],
+                            'cant_facturas': int(r['cant_facturas'] or 0),
+                            'total_deuda': float(r['total_deuda'] or 0.0)
+                        })
+                    return clientes
+            except Exception as e:
+                print(f"[get_clientes_con_facturas_pendientes Supabase Error] {e}")
+
+        from collections import defaultdict
+        wb = self.load_wb(data_only=True)
+        if 'INGRESOS' in wb.sheetnames:
+            ws = wb['INGRESOS']
+            _, rows = self._read_sheet_rows(ws, start_row=5)
+            grouped = defaultdict(lambda: {'cant': 0, 'deuda': 0.0})
+            for r in rows:
+                cli = str(self._get_row_prop(r, ['Cliente', 'cliente']) or '').strip()
+                st = str(self._get_row_prop(r, ['Estado cobro', 'Estado']) or '').strip().upper()
+                tipo = str(self._get_row_prop(r, ['Tipo comprobante']) or '').strip().lower()
+                if cli and st not in ('COBRADO', 'ANULADO') and not any(k in tipo for k in ['vuelto', 'adelanto', 'seña']):
+                    tot = self._to_float(self._get_row_prop(r, ['Total', 'Importe total']))
+                    cob = self._to_float(self._get_row_prop(r, ['Importe cobrado']))
+                    raw_s = self._get_row_prop(r, ['Saldo'])
+                    saldo = self._to_float(raw_s) if raw_s is not None and str(raw_s).strip() != '' else max(0.0, tot - cob)
+                    if saldo > 0.01:
+                        grouped[cli]['cant'] += 1
+                        grouped[cli]['deuda'] += saldo
+            for cli in sorted(grouped.keys()):
+                clientes.append({
+                    'cliente': cli,
+                    'cant_facturas': grouped[cli]['cant'],
+                    'total_deuda': grouped[cli]['deuda']
+                })
+        return clientes
+
+    def get_facturas_pendientes_cliente(self, cliente_name):
+        """Returns all open/pending invoices for a given client."""
+        cli_clean = str(cliente_name or '').strip()
+        if not cli_clean:
+            return []
+        facturas = []
+        if self.supabase_service and self.supabase_service.is_connected():
+            from sqlalchemy import text
+            try:
+                with self.supabase_service.engine.connect() as conn:
+                    rows = conn.execute(text("""
+                        SELECT id_ingreso, fecha_emision, tipo_comprobante, nro_factura_arca,
+                               cliente, cuit_cuil, actividad, total, importe_cobrado, saldo, estado_cobro, observaciones
+                        FROM ingresos
+                        WHERE LOWER(TRIM(cliente)) = LOWER(TRIM(:cli))
+                          AND (estado_cobro IS NULL OR UPPER(TRIM(estado_cobro)) NOT IN ('COBRADO', 'ANULADO'))
+                          AND COALESCE(saldo, total - COALESCE(importe_cobrado, 0)) > 0.01
+                          AND (tipo_comprobante IS NULL OR (
+                              LOWER(tipo_comprobante) NOT LIKE '%vuelto%' 
+                              AND LOWER(tipo_comprobante) NOT LIKE '%adelanto%'
+                              AND LOWER(tipo_comprobante) NOT LIKE '%seña%'
+                          ))
+                        ORDER BY fecha_emision ASC, id_ingreso ASC
+                    """), {'cli': cli_clean}).mappings().fetchall()
+                    for r in rows:
+                        tot = float(r['total'] or 0.0)
+                        cob = float(r['importe_cobrado'] or 0.0)
+                        s = float(r['saldo']) if r['saldo'] is not None else max(0.0, tot - cob)
+                        facturas.append({
+                            'id_ingreso': r['id_ingreso'],
+                            'fecha_emision': str(r['fecha_emision'] or '-'),
+                            'tipo_comprobante': r['tipo_comprobante'] or 'Factura',
+                            'nro_factura_arca': r['nro_factura_arca'] or r['id_ingreso'],
+                            'cliente': r['cliente'],
+                            'cuit': r['cuit_cuil'] or '',
+                            'actividad': r['actividad'] or '',
+                            'total': tot,
+                            'importe_cobrado': cob,
+                            'saldo': s,
+                            'estado_cobro': r['estado_cobro'] or 'Pendiente de Cobro',
+                            'observaciones': r['observaciones'] or ''
+                        })
+                    return facturas
+            except Exception as e:
+                print(f"[get_facturas_pendientes_cliente Supabase Error] {e}")
+
+        wb = self.load_wb(data_only=True)
+        if 'INGRESOS' in wb.sheetnames:
+            ws = wb['INGRESOS']
+            _, rows = self._read_sheet_rows(ws, start_row=5)
+            for r in rows:
+                cli = str(self._get_row_prop(r, ['Cliente', 'cliente']) or '').strip()
+                if cli.lower() == cli_clean.lower():
+                    st = str(self._get_row_prop(r, ['Estado cobro', 'Estado']) or '').strip().upper()
+                    tipo = str(self._get_row_prop(r, ['Tipo comprobante']) or '').strip().lower()
+                    if st not in ('COBRADO', 'ANULADO') and not any(k in tipo for k in ['vuelto', 'adelanto', 'seña']):
+                        tot = self._to_float(self._get_row_prop(r, ['Total', 'Importe total']))
+                        cob = self._to_float(self._get_row_prop(r, ['Importe cobrado']))
+                        raw_s = self._get_row_prop(r, ['Saldo'])
+                        s = self._to_float(raw_s) if raw_s is not None and str(raw_s).strip() != '' else max(0.0, tot - cob)
+                        if s > 0.01:
+                            iid = str(self._get_row_prop(r, ['ID ingreso', 'ID']) or '').strip()
+                            facturas.append({
+                                'id_ingreso': iid,
+                                'fecha_emision': str(self._get_row_prop(r, ['Fecha emisión', 'Fecha']) or '-'),
+                                'tipo_comprobante': str(self._get_row_prop(r, ['Tipo comprobante']) or 'Factura'),
+                                'nro_factura_arca': str(self._get_row_prop(r, ['N° factura ARCA', 'Factura']) or iid),
+                                'cliente': cli,
+                                'cuit': str(self._get_row_prop(r, ['CUIT/CUIL', 'CUIT']) or ''),
+                                'actividad': str(self._get_row_prop(r, ['Actividad']) or ''),
+                                'total': tot,
+                                'importe_cobrado': cob,
+                                'saldo': s,
+                                'estado_cobro': st or 'Pendiente de Cobro',
+                                'observaciones': str(self._get_row_prop(r, ['Observaciones']) or '')
+                            })
+        return facturas
+
+    def registrar_cobranza_multiple(self, cdata):
+        """
+        Registers payment covering multiple invoices for a client in a single unified Receipt (REC-XXXXXX).
+        - Generates one unique REC-XXXXXX.
+        - Inserts each physical or e-cheq into the 'cheques' table once with status 'Disponible'.
+        - Updates each invoice's importe_cobrado, saldo, estado_cobro, fecha_cobro, id_acuerdo, and medio_cobro.
+        - Keeps Tesorería and Cartera de Cheques 100% in balance without duplicates.
+        """
+        cliente_name = str(cdata.get('cliente') or '').strip()
+        facturas_input = cdata.get('facturas') or []
+        if not cliente_name:
+            return {"status": "error", "message": "Debe especificar el cliente de la cobranza."}
+        if not facturas_input or not isinstance(facturas_input, list):
+            return {"status": "error", "message": "Debe seleccionar al menos una factura para cancelar."}
+
+        fecha_cobro = cdata.get('fecha_cobro') or datetime.now().strftime('%Y-%m-%d')
+        m_transf = self._to_float(cdata.get('monto_transferencia'))
+        m_efectivo = self._to_float(cdata.get('monto_efectivo'))
+        m_tarjeta = self._to_float(cdata.get('monto_tarjeta'))
+        m_ret_ganancias = self._to_float(cdata.get('monto_ret_ganancias'))
+        m_ret_iva = self._to_float(cdata.get('monto_ret_iva'))
+        m_ret_iibb = self._to_float(cdata.get('monto_ret_iibb') or cdata.get('monto_retenciones'))
+        m_retenciones = m_ret_ganancias + m_ret_iva + m_ret_iibb
+
+        # Process cheques list
+        cheques_raw = cdata.get('cheques') or []
+        processed_cheques = []
+        for ch in cheques_raw:
+            m = self._to_float(ch.get('monto'))
+            if m > 0:
+                t = str(ch.get('tipo') or 'Cheque Físico').strip()
+                t = 'E-Cheq' if ('echeq' in t.lower() or 'e-cheq' in t.lower()) else 'Cheque Físico'
+                processed_cheques.append({
+                    'tipo': t,
+                    'monto': m,
+                    'nro': str(ch.get('nro') or ch.get('nro_cheque') or '').strip(),
+                    'banco': str(ch.get('banco') or ch.get('banco_cheque') or '').strip(),
+                    'fecha_venc': str(ch.get('fecha_venc') or ch.get('fecha_cobro') or fecha_cobro).strip()
+                })
+
+        m_saldo_favor = self._to_float(cdata.get('monto_saldo_favor'))
+        total_cheques = sum(ch['monto'] for ch in processed_cheques)
+        total_medios_pagados = m_transf + m_efectivo + m_tarjeta + total_cheques + m_retenciones + m_saldo_favor
+
+        # Calculate total applied to invoices
+        total_imputado_facturas = 0.0
+        imputaciones_validas = []
+        for f in facturas_input:
+            iid = str(f.get('id_ingreso') or '').strip()
+            m_imp = self._to_float(f.get('monto_imputar'))
+            if iid and m_imp > 0.001:
+                imputaciones_validas.append({'id_ingreso': iid, 'monto_imputar': m_imp})
+                total_imputado_facturas += m_imp
+
+        if not imputaciones_validas:
+            return {"status": "error", "message": "El importe a imputar en las facturas debe ser mayor a 0."}
+
+        # Validate sufficient payment (or excess for credit)
+        if total_medios_pagados < (total_imputado_facturas - 0.15):
+            faltante = total_imputado_facturas - total_medios_pagados
+            return {
+                "status": "error",
+                "message": f"El total de los medios de pago (${total_medios_pagados:,.2f}) es insuficiente para cubrir las facturas imputadas (${total_imputado_facturas:,.2f}). Faltan cubrir ${faltante:,.2f}."
+            }
+
+        excedente_saldo_favor = max(0.0, round(total_medios_pagados - total_imputado_facturas, 2))
+
+        # Build readable combined payment string
+        medios_list = []
+        cuenta_dest = str(cdata.get('cuenta_destino') or '').strip()
+        if m_transf > 0:
+            cta_txt = f" - {cuenta_dest}" if cuenta_dest and 'banco' in cuenta_dest.lower() else ""
+            medios_list.append(f"Transferencia: ${m_transf:,.2f}{cta_txt}")
+        if m_efectivo > 0:
+            medios_list.append(f"Efectivo: ${m_efectivo:,.2f}")
+        if m_tarjeta > 0:
+            medios_list.append(f"Tarjeta / Billetera: ${m_tarjeta:,.2f}")
+        if m_ret_ganancias > 0:
+            medios_list.append(f"Retención Ganancias: ${m_ret_ganancias:,.2f}")
+        if m_ret_iva > 0:
+            medios_list.append(f"Retención IVA: ${m_ret_iva:,.2f}")
+        if m_ret_iibb > 0:
+            medios_list.append(f"Retención IIBB: ${m_ret_iibb:,.2f}")
+        if m_saldo_favor > 0:
+            medios_list.append(f"Saldo a Favor C/C: ${m_saldo_favor:,.2f}")
+        for ch in processed_cheques:
+            detalles = []
+            if ch['nro']: detalles.append(f"N° {ch['nro']}")
+            if ch['banco']: detalles.append(ch['banco'])
+            det_str = f" ({', '.join(detalles)})" if detalles else ""
+            medios_list.append(f"{ch['tipo']}{det_str}: ${ch['monto']:,.2f}")
+        if excedente_saldo_favor > 0.05:
+            medios_list.append(f"Excedente acreditado en C/C: ${excedente_saldo_favor:,.2f}")
+
+        desglose_medios_str = " | ".join(medios_list)
+        if cuenta_dest and not any(cuenta_dest.lower() in m.lower() for m in medios_list):
+            desglose_medios_str = f"{desglose_medios_str} - {cuenta_dest}"
+
+        # Generate unique Recibo ID
+        if self.supabase_service and self.supabase_service.is_connected():
+            recibo_id = self.supabase_service.get_next_id('ingresos', 'REC', 'id_acuerdo')
+        else:
+            recibo_id = f"REC-{datetime.now().strftime('%f')[:6]}"
+
+        user_obs = str(cdata.get('observaciones') or '').strip()
+
+        # 1. Supabase Atomic Execution
+        if self.supabase_service and self.supabase_service.is_connected():
+            from sqlalchemy import text
+            try:
+                with self.supabase_service.engine.begin() as conn:
+                    # A) Insert Cheques in table cheques
+                    first_iid = imputaciones_validas[0]['id_ingreso']
+                    for ch in processed_cheques:
+                        cid = self.supabase_service.get_next_id('cheques', 'CHQ', 'id_cheque')
+                        conn.execute(text("""
+                            INSERT INTO cheques (
+                                id_cheque, fecha_ingreso, tipo, monto, cliente_emisor,
+                                cuit_emisor, banco, nro_cheque, fecha_cobro, endosado_tenedor,
+                                estado, id_ingreso_origen, observaciones, created_at, updated_at
+                            ) VALUES (
+                                :cid, CAST(:fecha AS date), :tipo, :monto, :cliente,
+                                :cuit, :banco, :nro, CAST(:f_cobro AS date), 'ECONCATIVO S.A.S.',
+                                'Disponible', :iid, :obs, NOW(), NOW()
+                            ) ON CONFLICT (id_cheque) DO NOTHING;
+                        """), {
+                            'cid': cid,
+                            'fecha': fecha_cobro,
+                            'tipo': ch['tipo'],
+                            'monto': ch['monto'],
+                            'cliente': cliente_name,
+                            'cuit': cdata.get('cuit') or None,
+                            'banco': ch['banco'],
+                            'nro': ch['nro'],
+                            'f_cobro': ch['fecha_venc'],
+                            'iid': first_iid,
+                            'obs': f"Cobranza Múltiple {recibo_id} ({len(imputaciones_validas)} facturas) - {cliente_name}"
+                        })
+
+                    # B) Update each invoice
+                    for imp in imputaciones_validas:
+                        iid = imp['id_ingreso']
+                        m_imp = imp['monto_imputar']
+                        row_curr = conn.execute(text("SELECT total, importe_cobrado, saldo, observaciones FROM ingresos WHERE id_ingreso = :iid"), {'iid': iid}).fetchone()
+                        if row_curr:
+                            curr_tot = float(row_curr[0] or 0.0)
+                            curr_cob = float(row_curr[1] or 0.0)
+                            new_cob = curr_cob + m_imp
+                            new_saldo = max(0.0, curr_tot - new_cob)
+                            new_est = 'COBRADO' if new_saldo <= 0.01 else 'Cobrado Parcial'
+                            curr_obs = str(row_curr[3] or '')
+                            note_extra = f" | [Cobranza Múltiple {recibo_id}: Imputado ${m_imp:,.2f}]"
+                            if user_obs: note_extra += f" Obs: {user_obs}"
+                            new_obs_row = f"{curr_obs}{note_extra}".strip(' |')
+
+                            conn.execute(text("""
+                                UPDATE ingresos SET
+                                    importe_cobrado = :cob,
+                                    saldo = :saldo,
+                                    estado_cobro = :estado,
+                                    fecha_cobro = CAST(:f_cobro AS date),
+                                    medio_cobro = :medio,
+                                    id_acuerdo = :rec_id,
+                                    observaciones = :obs,
+                                    updated_at = NOW()
+                                WHERE id_ingreso = :iid
+                            """), {
+                                'iid': iid,
+                                'cob': new_cob,
+                                'saldo': new_saldo,
+                                'estado': new_est,
+                                'f_cobro': fecha_cobro,
+                                'medio': f"[Recibo {recibo_id}] {desglose_medios_str}",
+                                'rec_id': recibo_id,
+                                'obs': new_obs_row
+                            })
+
+                    # C) Deduct applied Saldo a Favor if used (Debe)
+                    if m_saldo_favor > 0.01:
+                        cc_sf_id = self.supabase_service.get_next_id('cuentas_corrientes', 'CC', 'id_movimiento')
+                        conn.execute(text("""
+                            INSERT INTO cuentas_corrientes (
+                                id_movimiento, fecha, fecha_vencimiento, cliente, cuit,
+                                tipo_comprobante, referencia_id, concepto, debe, haber,
+                                observaciones, created_at
+                            ) VALUES (
+                                :cc_id, CAST(:fecha AS date), CAST(:fecha AS date), :cliente, :cuit,
+                                'Aplicación Saldo a Favor', :ref_id, :concepto, :monto, 0.0,
+                                :obs, NOW()
+                            )
+                        """), {
+                            'cc_id': cc_sf_id,
+                            'fecha': fecha_cobro,
+                            'cliente': cliente_name,
+                            'cuit': cdata.get('cuit') or None,
+                            'ref_id': recibo_id,
+                            'concepto': f"Imputación de Saldo a Favor a Cobranza Múltiple {recibo_id}",
+                            'monto': m_saldo_favor,
+                            'obs': f"Cancelación de facturas aplicando Saldo a Favor preexistente en C/C vía Recibo {recibo_id}"
+                        })
+
+                    # D) Credit excess payment as Saldo a Favor for the client (Haber)
+                    if excedente_saldo_favor > 0.05:
+                        cc_exc_id = self.supabase_service.get_next_id('cuentas_corrientes', 'CC', 'id_movimiento')
+                        conn.execute(text("""
+                            INSERT INTO cuentas_corrientes (
+                                id_movimiento, fecha, fecha_vencimiento, cliente, cuit,
+                                tipo_comprobante, referencia_id, concepto, debe, haber,
+                                observaciones, created_at
+                            ) VALUES (
+                                :cc_id, CAST(:fecha AS date), CAST(:fecha AS date), :cliente, :cuit,
+                                'Saldo a Favor', :ref_id, :concepto, 0.0, :monto,
+                                :obs, NOW()
+                            )
+                        """), {
+                            'cc_id': cc_exc_id,
+                            'fecha': fecha_cobro,
+                            'cliente': cliente_name,
+                            'cuit': cdata.get('cuit') or None,
+                            'ref_id': recibo_id,
+                            'concepto': f"Excedente Cobranza Múltiple {recibo_id} ({len(imputaciones_validas)} facturas canceladas)",
+                            'monto': excedente_saldo_favor,
+                            'obs': f"Pago en exceso al saldo de facturas. Excedente acreditado en C/C a favor del cliente vía Recibo {recibo_id}."
+                        })
+            except Exception as e:
+                print(f"[registrar_cobranza_multiple Supabase Error] {e}")
+                return {"status": "error", "message": f"Error al procesar cobranza múltiple: {e}"}
+
+        # 2. Mirror to Excel
+        try:
+            wb = self.load_wb(data_only=False)
+            if processed_cheques and 'CHEQUES' in wb.sheetnames:
+                ws_c = self._ensure_cheques_sheet(wb)
+                for ch in processed_cheques:
+                    cid = f"CHQ-{datetime.now().strftime('%f')[:6]}"
+                    ws_c.append([
+                        cid, fecha_cobro, ch['tipo'], ch['monto'], cliente_name, cdata.get('cuit', ''),
+                        ch['banco'], ch['nro'], ch['fecha_venc'], 'ECONCATIVO S.A.S.', 'Disponible',
+                        '', '', '', imputaciones_validas[0]['id_ingreso'],
+                        f"Cobranza Múltiple {recibo_id} ({len(imputaciones_validas)} facturas) - {cliente_name}"
+                    ])
+
+            if 'INGRESOS' in wb.sheetnames:
+                ws_i = wb['INGRESOS']
+                for imp in imputaciones_validas:
+                    iid = imp['id_ingreso']
+                    m_imp = imp['monto_imputar']
+                    for r in range(5, ws_i.max_row + 1):
+                        if str(ws_i.cell(r, 1).value or '').strip() == iid:
+                            tot_val = self._to_float(ws_i.cell(r, 16).value)
+                            cob_prev = self._to_float(ws_i.cell(r, 18).value)
+                            new_c = cob_prev + m_imp
+                            new_s = max(0.0, tot_val - new_c)
+                            new_st = 'COBRADO' if new_s <= 0.01 else 'Cobrado Parcial'
+                            ws_i.cell(r, 18, new_c)
+                            ws_i.cell(r, 19, fecha_cobro)
+                            ws_i.cell(r, 20, f"[Recibo {recibo_id}] {desglose_medios_str}")
+                            ws_i.cell(r, 21, new_s)
+                            ws_i.cell(r, 17, new_st)
+                            ws_i.cell(r, 22, recibo_id)
+                            break
+
+            if ('CUENTAS_CORRIENTES' in wb.sheetnames or 'CUENTAS CORRIENTES' in wb.sheetnames) and (m_saldo_favor > 0.01 or excedente_saldo_favor > 0.05):
+                ws_cc = self._ensure_cuentas_corrientes_sheet(wb)
+                if m_saldo_favor > 0.01:
+                    cc_sf_id = f"CC-{datetime.now().strftime('%f')[:6]}"
+                    ws_cc.append([
+                        cc_sf_id, fecha_cobro, fecha_cobro, cliente_name, cdata.get('cuit', ''),
+                        'Aplicación Saldo a Favor', recibo_id,
+                        f"Imputación de Saldo a Favor a Cobranza Múltiple {recibo_id}",
+                        m_saldo_favor, 0.0,
+                        f"Cancelación de facturas aplicando Saldo a Favor preexistente en C/C vía Recibo {recibo_id}"
+                    ])
+                if excedente_saldo_favor > 0.05:
+                    cc_exc_id = f"CC-{datetime.now().strftime('%f')[:6]}"
+                    ws_cc.append([
+                        cc_exc_id, fecha_cobro, fecha_cobro, cliente_name, cdata.get('cuit', ''),
+                        'Saldo a Favor', recibo_id,
+                        f"Excedente Cobranza Múltiple {recibo_id} ({len(imputaciones_validas)} facturas canceladas)",
+                        0.0, excedente_saldo_favor,
+                        f"Pago en exceso al saldo de facturas. Excedente acreditado en C/C a favor del cliente vía Recibo {recibo_id}."
+                    ])
+
+            wb.save(self.excel_path)
+        except Exception as excel_err:
+            print(f"[registrar_cobranza_multiple Excel Mirror Warning] {excel_err}")
+
+        self._invalidate_cache()
+        return {
+            "status": "success",
+            "recibo_id": recibo_id,
+            "facturas_count": len(imputaciones_validas),
+            "total_cobrado": total_imputado_facturas,
+            "excedente_saldo_favor": excedente_saldo_favor,
+            "saldo_favor_aplicado": m_saldo_favor,
+            "cliente": cliente_name
+        }
 
     def delete_ingreso_factura(self, i_id, delete_viaje_cascade=False):
         """
@@ -2801,13 +3237,14 @@ class DataManager:
             from sqlalchemy import text
             try:
                 with self.supabase_service.engine.connect() as conn:
-                    res = conn.execute(text("""
+                    all_rows = conn.execute(text("""
                         SELECT * FROM ingresos
                         WHERE id_ingreso = :tid OR id_acuerdo = :tid
-                        ORDER BY id_ingreso DESC LIMIT 1
-                    """), {'tid': target_clean}).fetchone()
-                    if res:
-                        r = dict(res._mapping)
+                        ORDER BY id_ingreso ASC
+                    """), {'tid': target_clean}).fetchall()
+                    if all_rows:
+                        rows_list = [dict(row._mapping) for row in all_rows]
+                        r = rows_list[0]
                         recibo_id = str(r.get('id_acuerdo') or '').strip()
                         if not recibo_id or not recibo_id.startswith('REC-'):
                             recibo_id = f"REC-{r.get('id_ingreso')}"
@@ -2843,8 +3280,35 @@ class DataManager:
                                     if amt_val > 0:
                                         medios_dict[f"Retención {concept_raw.title()}"] = amt_val
 
+                        facturas_detalle = []
+                        total_acum = 0.0
+                        cobrado_acum = 0.0
+                        for row_item in rows_list:
+                            tot_i = float(row_item.get('total') or 0.0)
+                            cob_i = float(row_item.get('importe_cobrado') or 0.0)
+                            total_acum += tot_i
+                            cobrado_acum += cob_i
+                            facturas_detalle.append({
+                                'id_ingreso': row_item.get('id_ingreso'),
+                                'nro_factura': row_item.get('nro_factura_arca') or row_item.get('id_ingreso'),
+                                'tipo_comprobante': row_item.get('tipo_comprobante') or 'Factura A',
+                                'fecha_emision': str(row_item.get('fecha_emision') or '-'),
+                                'total': tot_i,
+                                'importe_cobrado': cob_i,
+                                'saldo': float(row_item.get('saldo') or 0.0)
+                            })
+
+                        is_mult = len(rows_list) > 1
+                        nro_factura_str = f"Múltiples ({len(rows_list)} Facturas)" if is_mult else (r.get('nro_factura_arca') or '-')
+                        tipo_comp_str = "Cobranza Múltiple" if is_mult else (r.get('tipo_comprobante') or 'Factura A')
+                        total_final = total_acum if is_mult else float(r.get('total') or 0)
+                        cobrado_final = sum(medios_dict.values()) if (is_mult and medios_dict) else (cobrado_acum if is_mult else float(r.get('importe_cobrado') or 0))
+
                         return {
                             'recibo_id': recibo_id,
+                            'tipo_comprobante': tipo_comp_str,
+                            'nro_factura': nro_factura_str,
+                            'facturas_detalle': facturas_detalle,
                             'ingreso_id': r.get('id_ingreso'),
                             'fecha_cobro': str(r.get('fecha_cobro') or r.get('fecha_emision') or datetime.now().strftime('%Y-%m-%d')),
                             'fecha_emision': str(r.get('fecha_emision') or ''),
@@ -3397,7 +3861,7 @@ class DataManager:
                         'id': new_id,
                         'tipo': u_tipo,
                         'desc': u_desc,
-                        'pat': u_pat,
+                        'pat': u_pat or None,
                         'marca': u_marca,
                         'modelo': u_modelo,
                         'anio': u_anio,
@@ -3462,7 +3926,7 @@ class DataManager:
                     params['desc'] = str(udata['descripcion']).strip()
                 if 'patente' in udata or 'dominio_patente' in udata:
                     update_fields.append("dominio_patente = :pat")
-                    params['pat'] = str(udata.get('patente') or udata.get('dominio_patente', '')).strip()
+                    params['pat'] = str(udata.get('patente') or udata.get('dominio_patente', '')).strip() or None
                 if 'marca' in udata:
                     update_fields.append("marca = :marca")
                     params['marca'] = str(udata['marca']).strip()
@@ -3502,7 +3966,7 @@ class DataManager:
             from sqlalchemy import text
             try:
                 with self.supabase_service.engine.connect() as conn:
-                    pat_pattern = f"%{patente}%" if len(patente) >= 3 else patente
+                    pat_pattern = f"%{patente}%" if (patente and len(patente) >= 3) else "__NO_PAT__"
                     v = conn.execute(text("""
                         SELECT count(*) FROM viajes 
                         WHERE LOWER(unidad) LIKE :pat OR TRIM(unidad) = :uid
@@ -5379,12 +5843,15 @@ class DataManager:
             return [], []
         return self._read_sheet_rows(wb[sheet_name])
 
-    def _format_unidad_label(self, pat, marca, modelo, anio):
+    def _format_unidad_label(self, pat, marca, modelo, anio, tipo=None, desc=None, uid=None):
         import re
         pat = str(pat or '').strip()
         marca = str(marca or '').strip()
         modelo = str(modelo or '').strip()
         anio = str(anio or '').strip()
+        tipo = str(tipo or '').strip()
+        desc = str(desc or '').strip()
+        uid = str(uid or '').strip()
         
         parts = []
         if marca:
@@ -5400,9 +5867,16 @@ class DataManager:
                     parts.append(modelo)
         if anio:
             parts.append(f"({anio})")
+        if desc and not parts:
+            parts.append(desc)
             
         extra = " ".join(parts).strip()
-        return f"{pat} - {extra}" if extra else pat
+        if pat:
+            return f"{pat} - {extra}" if extra else pat
+        else:
+            prefix = f"[{tipo}] " if tipo else "[Maquinaria] "
+            body = extra or desc or uid or "Sin Patente"
+            return f"{prefix}{body}"
 
     def get_master_lists(self):
         if self.supabase_service and self.supabase_service.is_connected():
@@ -5420,28 +5894,43 @@ class DataManager:
                         ORDER BY apellido_nombre
                     """)).fetchall() if r[0]]
                     
-                    # Unidades con marca, modelo y año
-                    uni_records = conn.execute(text("SELECT dominio_patente, marca, modelo, anio FROM unidades WHERE estado IS NULL OR LOWER(TRIM(estado)) IN ('activo', '') ORDER BY dominio_patente")).fetchall()
+                    # Unidades con marca, modelo y año (incluyendo maquinarias sin patente)
+                    uni_records = conn.execute(text("""
+                        SELECT id_unidad, tipo, descripcion, dominio_patente, marca, modelo, anio 
+                        FROM unidades 
+                        WHERE estado IS NULL OR LOWER(TRIM(estado)) IN ('activo', '') 
+                        ORDER BY COALESCE(NULLIF(dominio_patente, ''), tipo), marca
+                    """)).fetchall()
                     uni = []
                     unidades_dict = {}
                     for r in uni_records:
-                        pat = r[0]
+                        uid = str(r[0] or '').strip()
+                        tipo = str(r[1] or '').strip()
+                        desc = str(r[2] or '').strip()
+                        pat = str(r[3] or '').strip() if r[3] else ''
+                        marca = str(r[4] or '').strip()
+                        modelo = str(r[5] or '').strip()
+                        anio = str(r[6] or '').strip()
+                        label = self._format_unidad_label(pat, marca, modelo, anio, tipo=tipo, desc=desc, uid=uid)
+                        val = pat if pat else label
+                        item_obj = {
+                            "id": uid,
+                            "value": val,
+                            "label": label,
+                            "patente": pat,
+                            "tipo": tipo,
+                            "descripcion": desc,
+                            "marca": marca,
+                            "modelo": modelo,
+                            "anio": anio
+                        }
+                        uni.append(item_obj)
                         if pat:
-                            pat = str(pat).strip()
-                            marca = str(r[1] or '').strip()
-                            modelo = str(r[2] or '').strip()
-                            anio = str(r[3] or '').strip()
-                            label = self._format_unidad_label(pat, marca, modelo, anio)
-                            item_obj = {
-                                "value": pat,
-                                "label": label,
-                                "patente": pat,
-                                "marca": marca,
-                                "modelo": modelo,
-                                "anio": anio
-                            }
-                            uni.append(item_obj)
                             unidades_dict[pat] = item_obj
+                        if val:
+                            unidades_dict[val] = item_obj
+                        if uid:
+                            unidades_dict[uid] = item_obj
 
                     cli = [r[0] for r in conn.execute(text("SELECT razon_social FROM clientes WHERE estado IS NULL OR LOWER(TRIM(estado)) IN ('activo', '') ORDER BY razon_social")).fetchall() if r[0]]
                     prov = [r[0] for r in conn.execute(text("SELECT razon_social FROM proveedores WHERE estado IS NULL OR LOWER(TRIM(estado)) IN ('activo', '') ORDER BY razon_social")).fetchall() if r[0]]
@@ -5583,24 +6072,36 @@ class DataManager:
             ws = wb['UNIDADES']
             _, uni_rows = self._read_sheet_rows(ws, start_row=5)
             for r in uni_rows:
-                pat = str(r.get('Dominio/Patente') or r.get('ID unidad') or '').strip()
+                uid = str(r.get('ID unidad') or r.get('id_unidad') or '').strip()
+                pat = str(r.get('Dominio/Patente') or r.get('dominio_patente') or '').strip()
                 estado = str(r.get('Estado') or '').strip().lower()
-                if pat and (not estado or estado in ['activo', '']):
+                if (pat or uid) and (not estado or estado in ['activo', '']):
+                    tipo = str(r.get('Tipo') or r.get('tipo') or '').strip()
+                    desc = str(r.get('Descripción') or r.get('Descripcion') or '').strip()
                     marca = str(r.get('Marca') or '').strip()
                     modelo = str(r.get('Modelo') or '').strip()
                     anio = str(r.get('Año') or r.get('Ao') or r.get('Anio') or '').strip()
-                    label = self._format_unidad_label(pat, marca, modelo, anio)
+                    label = self._format_unidad_label(pat, marca, modelo, anio, tipo=tipo, desc=desc, uid=uid)
+                    val = pat if pat else label
                     item_obj = {
-                        "value": pat,
+                        "id": uid,
+                        "value": val,
                         "label": label,
                         "patente": pat,
+                        "tipo": tipo,
+                        "descripcion": desc,
                         "marca": marca,
                         "modelo": modelo,
                         "anio": anio
                     }
-                    if not any(x['value'] == pat for x in uni):
+                    if not any(x['value'] == val for x in uni):
                         uni.append(item_obj)
-                        unidades_dict[pat] = item_obj
+                        if pat:
+                            unidades_dict[pat] = item_obj
+                        if val:
+                            unidades_dict[val] = item_obj
+                        if uid:
+                            unidades_dict[uid] = item_obj
 
         cli = get_col_values('CLIENTES', 'Razón social / Nombre') or get_col_values('CLIENTES', 'ID cliente')
         prov = get_col_values('PROVEEDORES', 'Razón social') or get_col_values('PROVEEDORES', 'Nombre comercial')
@@ -8508,16 +9009,30 @@ class DataManager:
         self._invalidate_cache()
         return {"status": "success", "id": cid_clean}
 
-    def add_adelanto_viaje(self, viaje_id, fecha, monto, medio_pago, comprobante='', observaciones='', cuenta_tesoreria=''):
+    def add_adelanto_viaje(self, viaje_id, fecha, monto, medio_pago, comprobante='', observaciones='', cuenta_tesoreria='', cheque_banco='', cheque_numero='', cheque_vencimiento=''):
         """Registers an advance payment for a Viaje and immediately creates an entry in INGRESOS as COBRADO in Supabase."""
         import json
         viaje_id_clean = str(viaje_id).strip()
         monto_float = self._to_float(monto)
         fecha_str = fecha or datetime.now().strftime('%Y-%m-%d')
 
-        medio_str = medio_pago or "Transferencia"
-        if cuenta_tesoreria and cuenta_tesoreria.lower() not in medio_str.lower():
-            medio_str = f"{medio_str} - {cuenta_tesoreria}"
+        med_lower = str(medio_pago or '').lower()
+        is_cheque = 'cheque' in med_lower or 'echeq' in med_lower or 'e-cheq' in med_lower
+
+        if is_cheque:
+            cuenta_tesoreria = "Cartera de Cheques"
+            chq_nro = str(cheque_numero or comprobante or '').replace('CHQ N°', '').replace('CHQ', '').strip()
+            banco_disp = str(cheque_banco or '').strip()
+            detalles = []
+            if chq_nro: detalles.append(f"N° {chq_nro}")
+            if banco_disp: detalles.append(banco_disp)
+            detalles_str = f" ({', '.join(detalles)})" if detalles else ""
+            medio_str = f"{medio_pago}{detalles_str} - Cartera de Cheques"
+            comprobante = chq_nro or comprobante or 'CHEQUE'
+        else:
+            medio_str = medio_pago or "Transferencia"
+            if cuenta_tesoreria and cuenta_tesoreria.lower() not in medio_str.lower():
+                medio_str = f"{medio_str} - {cuenta_tesoreria}"
 
         new_adelanto = {
             "fecha": fecha_str,
@@ -8603,10 +9118,14 @@ class DataManager:
                     })
 
                     # If cheque/echeq, insert to cheques table in Supabase
-                    med_lower = str(medio_pago or '').lower()
-                    if 'cheque' in med_lower or 'echeq' in med_lower or 'e-cheq' in med_lower:
+                    chq_id = None
+                    tipo_chq = None
+                    f_cobro = fecha_str
+                    if is_cheque:
                         chq_id = self.supabase_service.get_next_id('cheques', 'CHQ', 'id_cheque')
                         tipo_chq = 'E-Cheq' if ('echeq' in med_lower or 'e-cheq' in med_lower) else 'Cheque Físico'
+                        f_cobro = cheque_vencimiento or fecha_str
+                        chq_nro = str(cheque_numero or comprobante or '').replace('CHQ N°', '').replace('CHQ', '').strip()
                         conn.execute(text("""
                             INSERT INTO cheques (
                                 id_cheque, fecha_ingreso, tipo, monto, cliente_emisor,
@@ -8614,7 +9133,7 @@ class DataManager:
                                 estado, id_ingreso_origen, observaciones, created_at, updated_at
                             ) VALUES (
                                 :cid, CAST(:fecha AS date), :tipo, :monto, :cliente,
-                                :cuit, '', :nro, CAST(:fecha AS date), 'ECONCATIVO S.A.S.',
+                                :cuit, :banco, :nro, CAST(:f_cobro AS date), 'ECONCATIVO S.A.S.',
                                 'Disponible', :iid, :obs, NOW(), NOW()
                             ) ON CONFLICT (id_cheque) DO NOTHING;
                         """), {
@@ -8624,9 +9143,11 @@ class DataManager:
                             'monto': monto_float,
                             'cliente': v_cliente,
                             'cuit': cuit or None,
-                            'nro': comprobante or '',
+                            'banco': cheque_banco or '',
+                            'nro': chq_nro,
+                            'f_cobro': f_cobro,
                             'iid': ingreso_id,
-                            'obs': f"Seña / Adelanto por Viaje {viaje_id_clean}"
+                            'obs': f"Seña / Adelanto por Viaje {viaje_id_clean} - {v_cliente}"
                         })
             except Exception as e:
                 print(f"[add_adelanto_viaje Supabase Error] {e}")
@@ -8677,6 +9198,27 @@ class DataManager:
                     }
                     for col_idx, col_val in row_i_dict.items():
                         ws_i.cell(target_i_row, col_idx, col_val)
+
+                if is_cheque and 'CHEQUES' in wb.sheetnames:
+                    ws_c = wb['CHEQUES']
+                    target_c_row = ws_c.max_row + 1
+                    row_c_dict = {
+                        1: chq_id or f"CHQ-{datetime.now().strftime('%f')[:6]}",
+                        2: fecha_str,
+                        3: tipo_chq or 'Cheque Físico',
+                        4: monto_float,
+                        5: v_cliente,
+                        6: cuit,
+                        7: cheque_banco or '',
+                        8: chq_nro,
+                        9: f_cobro,
+                        10: 'ECONCATIVO S.A.S.',
+                        11: 'Disponible',
+                        15: ingreso_id,
+                        16: f"Seña / Adelanto por Viaje {viaje_id_clean} - {v_cliente}"
+                    }
+                    for col_idx, col_val in row_c_dict.items():
+                        ws_c.cell(target_c_row, col_idx, col_val)
 
                 wb.save(self.excel_path)
         except Exception as excel_err:
@@ -9610,43 +10152,55 @@ class DataManager:
         tipo = acc['tipo']
         cbu = (acc.get('cbu') or '').lower()
 
-        def matches_acc(label_str, full_str):
+        # Si la cuenta es de tipo Cheques, esta función no suma ingresos de aquí porque los cheques se obtienen de la cartera real de cheques
+        if tipo == 'Cheques' or 'cheque' in nomb_l:
+            return 0.0
+
+        def matches_acc(label_str, part_str):
             lbl_l = label_str.lower()
-            full_l = full_str.lower()
+            part_l = part_str.lower()
             
             # Protección de Tesorería: Retenciones impositivas y saldos a favor NUNCA suman a cuentas bancarias o cajas
-            if any(k in lbl_l for k in ['retenci', 'retencion', 'retención', 'saldo a favor', 'credito fiscal', 'descuento']):
+            if any(k in lbl_l or k in part_l for k in ['retenci', 'retencion', 'retención', 'saldo a favor', 'credito fiscal', 'descuento', 'ganancias', 'iibb', 'suss']):
                 return False
 
-            if nomb_l in full_l or cid.lower() in full_l:
-                if tipo == 'Banco' and ('cheque' in lbl_l or 'echeq' in lbl_l or 'e-cheq' in lbl_l):
-                    return False
-                return True
-                
+            # Los cheques físicos y e-cheqs NUNCA suman a Efectivo ni a Bancos (se gestionan en Cartera de Cheques)
+            if any(k in lbl_l or k in part_l for k in ['cheque', 'echeq', 'e-cheq', 'chq']):
+                return False
+
             if tipo == 'Efectivo':
-                return 'efectivo' in lbl_l or 'caja' in lbl_l
-            elif tipo == 'Billetera':
-                return any(w in lbl_l or w in full_l for w in ['mercado', 'billetera', 'ualá', 'uala', 'personal'])
-            elif tipo == 'Banco':
-                if 'cheque' in lbl_l or 'echeq' in lbl_l or 'e-cheq' in lbl_l:
+                # No debe ser transferencia bancaria ni banco
+                if any(w in part_l for w in ['transfer', 'banco', 'bancari', 'deposito']):
                     return False
-                is_primary = (cid == 'CTA-002' or 'galicia' in nomb_l)
+                return ('efectivo' in lbl_l or 'caja' in lbl_l or 'efectivo' in part_l or 'caja' in part_l or nomb_l in part_l)
+
+            elif tipo == 'Billetera':
+                return any(w in lbl_l or w in part_l for w in ['mercado', 'billetera', 'ualá', 'uala', 'personal']) or (nomb_l in part_l or cid.lower() in part_l)
+
+            elif tipo == 'Banco':
+                if 'efectivo' in lbl_l or 'caja' in lbl_l:
+                    return False
+
+                # Si nombra explícitamente a este banco o su CBU o ID
                 nomb_words = [w for w in re.split(r'\s+', nomb_l) if w not in ['banco', 'cta', 'cte', 'caja', 'ahorro', 'de', 'el', 'la', 'y']]
-                matches_specific = any(w in full_l for w in nomb_words if len(w) > 2) or (cbu and cbu in full_l)
-                
+                matches_specific = any(w in part_l for w in nomb_words if len(w) > 2) or (cbu and cbu in part_l) or (cid.lower() in part_l)
+                if matches_specific:
+                    return True
+
+                # Verificar si menciona a otro banco
                 other_bank_mentioned = False
                 for other_acc in accounts:
                     if other_acc['id'] != cid and other_acc['tipo'] == 'Banco':
                         other_nomb_l = other_acc['nombre'].lower()
                         other_words = [w for w in re.split(r'\s+', other_nomb_l) if w not in ['banco', 'cta', 'cte', 'caja', 'ahorro', 'de', 'el', 'la', 'y']]
-                        if any(w in full_l for w in other_words if len(w) > 2):
+                        if any(w in part_l for w in other_words if len(w) > 2):
                             other_bank_mentioned = True
                             break
-                            
-                if matches_specific:
-                    return True
-                elif is_primary and not other_bank_mentioned and ('banco' in lbl_l or 'transfer' in lbl_l or 'banco' in full_l or 'transfer' in full_l):
-                    return True
+
+                is_primary = (cid == 'CTA-002' or 'galicia' in nomb_l or cid == 'CTA-000006')
+                if not other_bank_mentioned and ('banco' in part_l or 'transfer' in part_l or 'deposito' in part_l):
+                    return is_primary
+
             return False
 
         if '|' in med_orig:
@@ -9658,12 +10212,13 @@ class DataManager:
                     label = match.group(1).strip()
                     amt_str = match.group(2).strip()
                     item_amt = self._to_float(amt_str)
-                    if matches_acc(label, med_orig):
+                    if matches_acc(label, part):
                         matched_amount += item_amt
+                else:
+                    if matches_acc(part, part):
+                        matched_amount += m_total
             return matched_amount
         else:
-            if any(k in med_l for k in ['retenci', 'retencion', 'retención', 'saldo a favor', 'credito fiscal']):
-                return 0.0
             if matches_acc(med_orig, med_orig):
                 return m_total
             return 0.0

@@ -517,6 +517,9 @@
                     <p class="text-sm text-slate-500">Historial completo de Facturas ARCA y transferencia a la Pestaña Ingresos</p>
                 </div>
                 <div class="flex items-center gap-2 flex-wrap">
+                    <button type="button" onclick="openCobranzaMultipleModal()" class="bg-navy hover:bg-navy-dark text-white font-bold px-4 py-2.5 rounded-xl shadow-sm transition-all flex items-center gap-2 text-xs cursor-pointer">
+                        <i class="fa-solid fa-receipt text-amber"></i> Cobranza Múltiple de Facturas
+                    </button>
                     <button type="button" onclick="openNuevaFacturaDirectaModal()" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-4 py-2.5 rounded-xl shadow-sm transition-all flex items-center gap-2 text-xs cursor-pointer">
                         <i class="fa-solid fa-file-circle-plus text-white"></i> Cargar Factura Directa / Histórica
                     </button>
@@ -1860,17 +1863,20 @@
                     <select id="mu-tipo" required class="w-full mt-1 p-2 bg-slate-50 border border-slate-200 rounded-lg font-medium outline-none focus:ring-2 focus:ring-navy">
                         <option value="Camión">Camión</option>
                         <option value="Semirremolque">Semirremolque</option>
+                        <option value="Pala / Excavadora">Pala / Excavadora</option>
+                        <option value="Retroexcavadora">Retroexcavadora</option>
+                        <option value="Cargadora">Cargadora</option>
                         <option value="Pickup">Pickup</option>
                         <option value="Motocicleta">Motocicleta</option>
                     </select>
                 </div>
                 <div>
                     <div class="flex justify-between items-center">
-                        <label class="font-semibold text-slate-700">Dominio / Patente *</label>
-                        <span id="mu-patente-counter" class="text-[10px] text-slate-400 font-semibold tracking-wider">0/7</span>
+                        <label id="mu-patente-label" class="font-semibold text-slate-700">Dominio / Patente</label>
+                        <span id="mu-patente-counter" class="text-[10px] text-slate-400 font-semibold tracking-wider"></span>
                     </div>
-                    <input type="text" id="mu-patente" required maxlength="7" placeholder="Ej: AA123CD o AAA123"
-                        oninput="this.value = this.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 7); const c = document.getElementById('mu-patente-counter'); if (c) c.innerText = this.value.length + '/7';"
+                    <input type="text" id="mu-patente" maxlength="15" placeholder="Ej: AA123CD o AAA123"
+                        oninput="this.value = this.value.toUpperCase(); const c = document.getElementById('mu-patente-counter'); if (c) c.innerText = this.value.length ? (this.value.length + ' car.') : '';"
                         class="w-full mt-1 p-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-slate-800 tracking-wider uppercase outline-none focus:ring-2 focus:ring-navy"
                         style="text-transform: uppercase;">
                 </div>
@@ -2374,7 +2380,7 @@
 
                 <div>
                     <label class="font-semibold text-slate-700">Medio de Pago *</label>
-                    <select id="va-medio-pago" required class="w-full mt-1 p-2.5 bg-slate-50 border border-slate-200 rounded-lg font-medium outline-none focus:ring-2 focus:ring-emerald-600">
+                    <select id="va-medio-pago" onchange="onMedioPagoAdelantoChange()" required class="w-full mt-1 p-2.5 bg-slate-50 border border-slate-200 rounded-lg font-medium outline-none focus:ring-2 focus:ring-emerald-600">
                         <option value="Transferencia Bancaria" selected>Transferencia Bancaria</option>
                         <option value="Efectivo">Efectivo</option>
                         <option value="Cheque Físico">Cheque Físico</option>
@@ -2383,14 +2389,42 @@
                     </select>
                 </div>
 
-                <div>
+                <div id="va-group-cuenta-destino">
                     <label class="font-semibold text-slate-700">Cuenta de Tesorería Destino *</label>
                     <select id="va-cuenta-tesoreria" required class="w-full mt-1 p-2.5 bg-slate-50 border border-slate-200 rounded-lg font-medium outline-none focus:ring-2 focus:ring-emerald-600">
                         <option value="">Cargando cuentas...</option>
                     </select>
                 </div>
 
-                <div>
+                <div id="va-group-cheque-destino" class="hidden">
+                    <label class="font-semibold text-slate-700">Destino del Cobro</label>
+                    <div class="mt-1 p-2.5 bg-emerald-50 border border-emerald-200 rounded-lg font-bold text-emerald-900 flex items-center gap-2">
+                        <i class="fa-solid fa-money-check-dollar text-emerald-600 text-sm"></i>
+                        <span>Cartera de Cheques (Se guardará automáticamente en cheques en cartera)</span>
+                    </div>
+                </div>
+
+                <div id="va-fields-cheque" class="hidden space-y-2.5 bg-slate-50 p-3 rounded-xl border border-slate-200">
+                    <div class="font-bold text-slate-700 flex items-center gap-1.5 text-xs text-navy border-b border-slate-200 pb-1.5">
+                        <i class="fa-solid fa-receipt text-emerald-600"></i> Datos del Cheque Recibido
+                    </div>
+                    <div>
+                        <label class="font-semibold text-slate-700">Banco Emisor del Cheque *</label>
+                        <input type="text" id="va-cheque-banco" placeholder="Ej: Santander, BANCOR, Galicia, Macro..." class="w-full mt-1 p-2 bg-white border border-slate-200 rounded-lg font-medium outline-none focus:ring-2 focus:ring-emerald-600">
+                    </div>
+                    <div class="grid grid-cols-2 gap-2">
+                        <div>
+                            <label class="font-semibold text-slate-700">N° de Cheque *</label>
+                            <input type="text" id="va-cheque-numero" placeholder="Ej: 40022162" class="w-full mt-1 p-2 bg-white border border-slate-200 rounded-lg font-medium outline-none focus:ring-2 focus:ring-emerald-600">
+                        </div>
+                        <div>
+                            <label class="font-semibold text-slate-700">Fecha de Cobro *</label>
+                            <input type="date" id="va-cheque-vencimiento" class="w-full mt-1 p-2 bg-white border border-slate-200 rounded-lg font-medium outline-none focus:ring-2 focus:ring-emerald-600">
+                        </div>
+                    </div>
+                </div>
+
+                <div id="va-group-comprobante">
                     <label class="font-semibold text-slate-700">N° Comprobante / Referencia</label>
                     <input type="text" id="va-comprobante" placeholder="Ej: Transf. N° 458912" class="w-full mt-1 p-2 bg-slate-50 border border-slate-200 rounded-lg font-medium outline-none focus:ring-2 focus:ring-emerald-600">
                 </div>
@@ -2877,7 +2911,237 @@
         </div>
     </div>
 
-    <!-- Modal: Nuevo Egreso -->
+        <!-- Modal: Cobranza Múltiple de Facturas (Pestaña Facturación) -->
+    <div id="modal-cobranza-multiple" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+        <div class="bg-white rounded-2xl shadow-2xl max-w-4xl w-full p-6 space-y-4 max-h-[92vh] flex flex-col border border-slate-100">
+            <!-- Header -->
+            <div class="flex items-center justify-between border-b border-slate-100 pb-3 shrink-0">
+                <div class="flex items-center gap-2">
+                    <span class="w-9 h-9 rounded-xl bg-navy/10 text-navy flex items-center justify-center text-lg">
+                        <i class="fa-solid fa-receipt text-amber"></i>
+                    </span>
+                    <div>
+                        <h3 class="text-base font-bold text-navy flex items-center gap-2">
+                            Cobranza Múltiple de Facturas
+                        </h3>
+                        <p class="text-[11px] text-slate-500">Imputá un cobro único a múltiples facturas pendientes de un cliente y generá un recibo unificado</p>
+                    </div>
+                </div>
+                <button type="button" onclick="closeModal('modal-cobranza-multiple')" class="text-slate-400 hover:text-slate-600 text-2xl font-bold leading-none cursor-pointer">&times;</button>
+            </div>
+
+            <!-- Scrollable Body -->
+            <div class="overflow-y-auto space-y-4 pr-1 text-xs">
+                <!-- Paso 1: Seleccionar Cliente -->
+                <div class="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-2">
+                    <label class="font-bold text-slate-700 flex items-center gap-1.5 text-xs">
+                        <i class="fa-solid fa-user-check text-navy"></i> 1. Seleccioná el Cliente con Facturas Pendientes *
+                    </label>
+                    <select id="cm-cliente" onchange="onCobranzaMultipleClienteSelected()" class="w-full p-2.5 bg-white border border-slate-300 rounded-lg font-bold text-slate-800 text-xs outline-none focus:ring-2 focus:ring-navy">
+                        <option value="">-- Seleccionar Cliente --</option>
+                    </select>
+
+                    <!-- Client Summary Badge -->
+                    <div id="cm-cliente-info" class="hidden flex items-center justify-between flex-wrap gap-2 pt-2 border-t border-slate-200 text-xs">
+                        <div class="flex items-center gap-2">
+                            <span class="text-slate-600">CUIT: <strong id="cm-disp-cuit" class="text-slate-800">-</strong></span>
+                            <span class="text-slate-300">|</span>
+                            <span class="text-slate-600">Facturas impagas: <strong id="cm-disp-cant-facturas" class="text-navy font-bold">0</strong></span>
+                        </div>
+                        <div class="flex items-center gap-3">
+                            <div>
+                                <span class="text-slate-600">Deuda en Facturas: </span>
+                                <strong id="cm-disp-total-deuda" class="text-sm font-black text-rose-600">$0.00</strong>
+                            </div>
+                            <div id="cm-box-saldo-acreedor" class="hidden pl-2.5 border-l border-slate-200">
+                                <span class="text-slate-600">Saldo Acreedor en C/C: </span>
+                                <strong id="cm-disp-saldo-acreedor" class="text-sm font-black text-emerald-600">$0.00</strong>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Bloque Saldo a Favor disponible para aplicar -->
+                    <div id="container-cm-saldo-favor" class="hidden bg-emerald-50/90 p-3 rounded-xl border border-emerald-300 text-emerald-950 space-y-2 mt-2">
+                        <div class="flex justify-between items-center">
+                            <label class="flex items-center gap-2 cursor-pointer font-bold text-xs select-none">
+                                <input type="checkbox" id="cm-check-saldo-favor" onchange="toggleCobranzaMultipleSaldoFavor(this.checked)" class="w-4 h-4 text-emerald-600 rounded border-slate-300 focus:ring-emerald-500 cursor-pointer">
+                                <span class="flex items-center gap-1.5 text-emerald-950">
+                                    <i class="fa-solid fa-circle-check text-emerald-600"></i> Aplicar Saldo a Favor preexistente en Cuenta Corriente
+                                </span>
+                            </label>
+                            <span class="text-xs text-slate-500 font-medium">Crédito disp.: <span id="cm-disp-sf-disp" class="font-bold text-emerald-800">$0.00</span></span>
+                        </div>
+                        <div id="wrapper-cm-saldo-favor-input" class="hidden flex items-center gap-2 pt-1 border-t border-emerald-200/60">
+                            <span class="text-xs font-semibold text-emerald-900 shrink-0">Monto a aplicar ($):</span>
+                            <input type="number" step="0.01" id="cm-monto-saldo-favor" oninput="calcCobranzaMultipleTotales()" placeholder="0.00" class="w-full p-2 bg-white border border-emerald-300 rounded-lg font-bold text-emerald-900 text-xs outline-none focus:ring-2 focus:ring-emerald-600">
+                            <button type="button" onclick="usarMaximoCobranzaMultipleSaldoFavor()" class="text-[11px] bg-emerald-700 hover:bg-emerald-800 text-white font-bold px-2.5 py-1.5 rounded-lg whitespace-nowrap shadow-sm cursor-pointer">Usar Máx.</button>
+                        </div>
+                        <p class="text-[10px] text-emerald-700 font-medium">Descuenta del saldo a favor real registrado en la cuenta corriente del cliente.</p>
+                    </div>
+                </div>
+
+                <!-- Paso 2: Seleccionar e Imputar Facturas -->
+                <div class="space-y-2">
+                    <div class="flex items-center justify-between flex-wrap gap-2">
+                        <h4 class="font-bold text-slate-800 text-xs flex items-center gap-1.5">
+                            <i class="fa-solid fa-file-invoice-dollar text-emerald-600"></i> 2. Facturas a Cancelar / Imputar
+                        </h4>
+                        <div class="flex items-center gap-2">
+                            <label class="flex items-center gap-1.5 text-[11px] font-semibold text-slate-600 cursor-pointer select-none">
+                                <input type="checkbox" id="cm-select-all" onchange="toggleAllCobranzaMultipleFacturas(this.checked)" class="w-3.5 h-3.5 rounded text-navy focus:ring-navy cursor-pointer">
+                                <span>Seleccionar Todas</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="border border-slate-200 rounded-xl overflow-hidden bg-white shadow-xs">
+                        <div class="max-h-56 overflow-y-auto">
+                            <table class="w-full text-left text-xs border-collapse">
+                                <thead class="bg-slate-100 text-slate-600 font-semibold sticky top-0 z-10 border-b border-slate-200">
+                                    <tr>
+                                        <th class="p-2.5 text-center w-10">Sel.</th>
+                                        <th class="p-2.5">Factura ARCA / ID</th>
+                                        <th class="p-2.5">Fecha</th>
+                                        <th class="p-2.5">Tipo</th>
+                                        <th class="p-2.5 text-right">Total</th>
+                                        <th class="p-2.5 text-right">Saldo Pend.</th>
+                                        <th class="p-2.5 text-right w-36">Monto a Imputar ($)</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="cm-facturas-tbody" class="divide-y divide-slate-100">
+                                    <tr>
+                                        <td colspan="7" class="p-6 text-center text-slate-400">
+                                            Seleccioná un cliente arriba para ver sus facturas pendientes.
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="bg-slate-50 p-2.5 border-t border-slate-200 flex items-center justify-between font-bold text-xs">
+                            <span class="text-slate-600">Total a Imputar en Facturas:</span>
+                            <span id="cm-total-imputar-disp" class="text-sm font-black text-navy">$0.00</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Paso 3: Medios de Pago Combinados -->
+                <div class="space-y-3 pt-2 border-t border-slate-100">
+                    <h4 class="font-bold text-slate-800 text-xs flex items-center gap-1.5">
+                        <i class="fa-solid fa-layer-group text-navy"></i> 3. Desglose de Medios de Pago Recibidos
+                    </h4>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+                        <div class="col-span-1 sm:col-span-2 md:col-span-2">
+                            <label class="font-semibold text-slate-700">Fecha de Cobro *</label>
+                            <input type="date" id="cm-fecha-cobro" required class="w-full mt-1 p-2 bg-slate-50 border border-slate-200 rounded-lg font-medium outline-none focus:ring-2 focus:ring-navy">
+                        </div>
+
+                        <div class="col-span-1 sm:col-span-2 md:col-span-2">
+                            <label class="font-semibold text-slate-700"><i class="fa-solid fa-building-columns text-emerald-600 mr-1"></i>Cuenta Receptora Fondos *</label>
+                            <select id="cm-cuenta-destino" required class="w-full mt-1 p-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-slate-800 outline-none focus:ring-2 focus:ring-navy">
+                                <!-- Populated dynamically from liquid accounts -->
+                            </select>
+                        </div>
+
+                        <div>
+                            <label class="font-semibold text-slate-700"><i class="fa-solid fa-building-columns text-blue-600 mr-1"></i>Transferencia ($)</label>
+                            <input type="number" step="0.01" id="cm-monto-transferencia" oninput="calcCobranzaMultipleTotales()" placeholder="0.00" class="w-full mt-1 p-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-slate-800 outline-none focus:ring-2 focus:ring-navy">
+                        </div>
+
+                        <div>
+                            <label class="font-semibold text-slate-700"><i class="fa-solid fa-money-bill-1-wave text-emerald-600 mr-1"></i>Efectivo ($)</label>
+                            <input type="number" step="0.01" id="cm-monto-efectivo" oninput="calcCobranzaMultipleTotales()" placeholder="0.00" class="w-full mt-1 p-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-slate-800 outline-none focus:ring-2 focus:ring-navy">
+                        </div>
+
+                        <div>
+                            <label class="font-semibold text-slate-700"><i class="fa-solid fa-receipt text-amber-600 mr-1"></i>Ret. Ganancias ($)</label>
+                            <input type="number" step="0.01" id="cm-monto-ret-ganancias" oninput="calcCobranzaMultipleTotales()" placeholder="0.00" class="w-full mt-1 p-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-slate-800 outline-none focus:ring-2 focus:ring-navy">
+                        </div>
+
+                        <div>
+                            <label class="font-semibold text-slate-700"><i class="fa-solid fa-file-invoice text-amber-600 mr-1"></i>Ret. IVA ($)</label>
+                            <input type="number" step="0.01" id="cm-monto-ret-iva" oninput="calcCobranzaMultipleTotales()" placeholder="0.00" class="w-full mt-1 p-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-slate-800 outline-none focus:ring-2 focus:ring-navy">
+                        </div>
+
+                        <div class="col-span-1 sm:col-span-2">
+                            <label class="font-semibold text-slate-700"><i class="fa-solid fa-file-invoice-dollar text-amber-700 mr-1"></i>Retención IIBB / Otras ($)</label>
+                            <input type="number" step="0.01" id="cm-monto-ret-iibb" oninput="calcCobranzaMultipleTotales()" placeholder="0.00" class="w-full mt-1 p-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-slate-800 outline-none focus:ring-2 focus:ring-navy">
+                        </div>
+
+                        <div class="col-span-1 sm:col-span-2">
+                            <label class="font-semibold text-slate-700"><i class="fa-solid fa-credit-card text-indigo-600 mr-1"></i>Tarjeta / Otros ($)</label>
+                            <input type="number" step="0.01" id="cm-monto-tarjeta" oninput="calcCobranzaMultipleTotales()" placeholder="0.00" class="w-full mt-1 p-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-slate-800 outline-none focus:ring-2 focus:ring-navy">
+                        </div>
+                    </div>
+
+                    <!-- Sección Cheques Recibidos -->
+                    <div class="bg-amber-50/70 p-3.5 rounded-xl border border-amber-300/80 space-y-2.5">
+                        <div class="flex items-center justify-between flex-wrap gap-2">
+                            <div class="flex items-center gap-2">
+                                <span class="font-bold text-amber-950 text-xs flex items-center gap-1.5">
+                                    <i class="fa-solid fa-money-check-dollar text-amber-600 text-sm"></i> Cheques y E-Cheqs Recibidos (Cartera)
+                                </span>
+                                <span id="cm-total-cheques-badge" class="hidden text-[11px] font-bold text-amber-900 bg-amber-200/80 border border-amber-300 px-2.5 py-0.5 rounded-full">
+                                    Subtotal Cheques: $0.00
+                                </span>
+                            </div>
+                            <button type="button" onclick="agregarFilaChequeCobranzaMultiple()" class="text-xs bg-amber-600 hover:bg-amber-700 text-white font-bold px-3 py-1.5 rounded-lg shadow-sm flex items-center gap-1.5 cursor-pointer transition">
+                                <i class="fa-solid fa-plus"></i> Agregar Cheque
+                            </button>
+                        </div>
+
+                        <div id="cm-cheques-container" class="space-y-2.5">
+                            <!-- Filas de cheques dinámicas -->
+                        </div>
+
+                        <div id="cm-cheques-empty" class="text-center py-2.5 px-3 border border-dashed border-amber-300 rounded-xl bg-white/70 text-amber-900 text-xs">
+                            <i class="fa-solid fa-money-check text-amber-500 mr-1 text-sm"></i>
+                            <span>Podés agregar uno o varios cheques haciendo clic en <b>"+ Agregar Cheque"</b>.</span>
+                        </div>
+                    </div>
+
+                    <!-- Reconciliation Bar -->
+                    <div class="bg-slate-50 p-3.5 rounded-xl border border-slate-200 grid grid-cols-1 sm:grid-cols-3 gap-3 text-center">
+                        <div>
+                            <span class="text-[11px] text-slate-500 block font-semibold">Total a Imputar:</span>
+                            <span id="cm-sum-imputar" class="text-sm font-bold text-slate-800">$0.00</span>
+                        </div>
+                        <div>
+                            <span class="text-[11px] text-slate-500 block font-semibold">Total Medios de Pago:</span>
+                            <span id="cm-sum-medios" class="text-sm font-bold text-slate-800">$0.00</span>
+                        </div>
+                        <div>
+                            <span id="cm-lbl-diferencia" class="text-[11px] text-slate-500 block font-semibold">Diferencia / Excedente:</span>
+                            <span id="cm-sum-diferencia" class="text-sm font-bold text-slate-500">$0.00</span>
+                        </div>
+                        <div class="col-span-1 sm:col-span-3 text-center">
+                            <span id="cm-status-badge" class="inline-block px-3 py-1 rounded-full text-xs font-bold bg-slate-200 text-slate-600">
+                                Ingrese las imputaciones y los medios de pago
+                            </span>
+                        </div>
+                    </div>
+
+                    <!-- Observaciones -->
+                    <div>
+                        <label class="font-semibold text-slate-700">Observaciones Generales de la Cobranza</label>
+                        <input type="text" id="cm-observaciones" placeholder="Ej: Pago de facturas del período según recibo / orden de pago" class="w-full mt-1 p-2 bg-slate-50 border border-slate-200 rounded-lg font-medium outline-none focus:ring-2 focus:ring-navy">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Footer Actions -->
+            <div class="flex items-center justify-between pt-3 border-t border-slate-100 shrink-0">
+                <button type="button" onclick="closeModal('modal-cobranza-multiple')" class="px-4 py-2 font-bold text-slate-500 hover:text-slate-700 cursor-pointer text-xs">
+                    Cancelar
+                </button>
+                <button type="button" id="cm-btn-submit" onclick="submitCobranzaMultiple()" disabled class="bg-navy hover:bg-navy-dark disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold px-6 py-2.5 rounded-xl shadow cursor-pointer text-xs flex items-center gap-2 transition">
+                    <i class="fa-solid fa-check text-amber"></i> Registrar Cobranza Múltiple
+                </button>
+            </div>
+        </div>
+    </div>
+
+<!-- Modal: Nuevo Egreso -->
     <div id="modal-egreso" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
         <div class="bg-white rounded-2xl shadow-2xl max-w-xl w-full p-5 sm:p-6 my-auto max-h-[92vh] flex flex-col border border-slate-100">
             <div class="flex items-center justify-between border-b border-slate-100 pb-3 shrink-0">

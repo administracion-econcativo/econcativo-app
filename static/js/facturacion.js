@@ -636,3 +636,600 @@ async function submitNuevaFacturaDirecta(e) {
 }
 
 
+
+
+// ============================================================================
+// COBRANZA MÚLTIPLE DE FACTURAS (Pestaña Facturación)
+// ============================================================================
+
+let cobranzaMultipleFacturasList = [];
+
+async function openCobranzaMultipleModal() {
+    // Reset Form
+    const cliSelect = document.getElementById('cm-cliente');
+    if (cliSelect) {
+        cliSelect.innerHTML = '<option value="">-- Cargando clientes con deuda... --</option>';
+    }
+    const infoDiv = document.getElementById('cm-cliente-info');
+    if (infoDiv) infoDiv.classList.add('hidden');
+
+    const fTbody = document.getElementById('cm-facturas-tbody');
+    if (fTbody) {
+        fTbody.innerHTML = `<tr><td colspan="7" class="p-6 text-center text-slate-400">Seleccioná un cliente arriba para ver sus facturas pendientes.</td></tr>`;
+    }
+
+    const selectAll = document.getElementById('cm-select-all');
+    if (selectAll) selectAll.checked = false;
+
+    // Reset date to today
+    const fDate = document.getElementById('cm-fecha-cobro');
+    if (fDate) fDate.value = new Date().toISOString().split('T')[0];
+
+    // Reset amounts
+    ['cm-monto-transferencia', 'cm-monto-efectivo', 'cm-monto-ret-ganancias', 'cm-monto-ret-iva', 'cm-monto-ret-iibb', 'cm-monto-tarjeta'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
+    });
+
+    const chqContainer = document.getElementById('cm-cheques-container');
+    if (chqContainer) chqContainer.innerHTML = '';
+    const chqEmpty = document.getElementById('cm-cheques-empty');
+    if (chqEmpty) chqEmpty.classList.remove('hidden');
+    const chqBadge = document.getElementById('cm-total-cheques-badge');
+    if (chqBadge) chqBadge.classList.add('hidden');
+
+    const obs = document.getElementById('cm-observaciones');
+    if (obs) obs.value = '';
+
+    const boxAcreedor = document.getElementById('cm-box-saldo-acreedor');
+    if (boxAcreedor) boxAcreedor.classList.add('hidden');
+    const sfContainer = document.getElementById('container-cm-saldo-favor');
+    if (sfContainer) sfContainer.classList.add('hidden');
+    const sfCheck = document.getElementById('cm-check-saldo-favor');
+    if (sfCheck) sfCheck.checked = false;
+    const sfWrapper = document.getElementById('wrapper-cm-saldo-favor-input');
+    if (sfWrapper) sfWrapper.classList.add('hidden');
+    const sfInput = document.getElementById('cm-monto-saldo-favor');
+    if (sfInput) {
+        sfInput.value = '';
+        sfInput.dataset.maxSaldo = '0';
+    }
+
+    // Ensure accounts are populated
+    if (typeof populateTreasuryAccountSelects === 'function') {
+        populateTreasuryAccountSelects();
+    }
+
+    calcCobranzaMultipleTotales();
+    openModal('modal-cobranza-multiple');
+
+    // Fetch clients with pending invoices
+    try {
+        const res = await fetch('/api/facturacion/clientes_pendientes');
+        const json = await res.json();
+        if (json.status === 'success') {
+            const clientes = json.clientes || [];
+            if (!clientes.length) {
+                cliSelect.innerHTML = '<option value="">(No hay clientes con facturas pendientes)</option>';
+            } else {
+                let opts = '<option value="">-- Seleccionar Cliente --</option>';
+                clientes.forEach(c => {
+                    opts += `<option value="${c.cliente}" data-cant="${c.cant_facturas}" data-deuda="${c.total_deuda}">${c.cliente} (${c.cant_facturas} fact. - Saldo: ${typeof formatARS === 'function' ? formatARS(c.total_deuda) : '$' + c.total_deuda})</option>`;
+                });
+                cliSelect.innerHTML = opts;
+            }
+        } else {
+            showToast("Error al cargar clientes: " + (json.message || ''), "error");
+        }
+    } catch (err) {
+        console.error(err);
+        showToast("Error de conexión al cargar clientes pendientes.", "error");
+    }
+}
+
+async function onCobranzaMultipleClienteSelected() {
+    const cliSelect = document.getElementById('cm-cliente');
+    const cliente = cliSelect ? cliSelect.value.trim() : '';
+    const infoDiv = document.getElementById('cm-cliente-info');
+    const fTbody = document.getElementById('cm-facturas-tbody');
+    const selectAll = document.getElementById('cm-select-all');
+    if (selectAll) selectAll.checked = false;
+
+    if (!cliente) {
+        if (infoDiv) infoDiv.classList.add('hidden');
+        if (fTbody) fTbody.innerHTML = `<tr><td colspan="7" class="p-6 text-center text-slate-400">Seleccioná un cliente arriba para ver sus facturas pendientes.</td></tr>`;
+        cobranzaMultipleFacturasList = [];
+        calcCobranzaMultipleTotales();
+        return;
+    }
+
+    const opt = cliSelect.options[cliSelect.selectedIndex];
+    const cant = opt?.dataset?.cant || '0';
+    const deuda = parseFloat(opt?.dataset?.deuda || 0);
+
+    if (infoDiv) {
+        infoDiv.classList.remove('hidden');
+        const cantEl = document.getElementById('cm-disp-cant-facturas');
+        const deudaEl = document.getElementById('cm-disp-total-deuda');
+        if (cantEl) cantEl.innerText = cant;
+        if (deudaEl) deudaEl.innerText = typeof formatARS === 'function' ? formatARS(deuda) : '$' + deuda.toFixed(2);
+    }
+
+    // Check client existing Saldo Acreedor (Saldo a Favor in C/C)
+    const boxAcreedor = document.getElementById('cm-box-saldo-acreedor');
+    const dispAcreedor = document.getElementById('cm-disp-saldo-acreedor');
+    const sfContainer = document.getElementById('container-cm-saldo-favor');
+    const sfCheck = document.getElementById('cm-check-saldo-favor');
+    const sfWrapper = document.getElementById('wrapper-cm-saldo-favor-input');
+    const sfInput = document.getElementById('cm-monto-saldo-favor');
+    const sfDisp = document.getElementById('cm-disp-sf-disp');
+
+    if (boxAcreedor) boxAcreedor.classList.add('hidden');
+    if (sfContainer) sfContainer.classList.add('hidden');
+    if (sfCheck) sfCheck.checked = false;
+    if (sfWrapper) sfWrapper.classList.add('hidden');
+    if (sfInput) {
+        sfInput.value = '';
+        sfInput.dataset.maxSaldo = '0';
+    }
+
+    try {
+        const ccRes = await fetch(`/api/cuentas_corrientes/${encodeURIComponent(cliente)}`);
+        const ccJson = await ccRes.json();
+        if (ccJson.status === 'success') {
+            const sFinal = parseFloat(ccJson.saldo_final) || 0;
+            // Negative balance in C/C means creditor balance (a favor del cliente)
+            if (sFinal < -0.01) {
+                const creditAvail = Math.abs(sFinal);
+                if (boxAcreedor && dispAcreedor) {
+                    dispAcreedor.innerText = typeof formatARS === 'function' ? formatARS(creditAvail) : '$' + creditAvail.toFixed(2);
+                    boxAcreedor.classList.remove('hidden');
+                }
+                if (sfContainer && sfInput) {
+                    sfContainer.classList.remove('hidden');
+                    sfInput.dataset.maxSaldo = creditAvail;
+                    if (sfDisp) sfDisp.innerText = typeof formatARS === 'function' ? formatARS(creditAvail) : '$' + creditAvail.toFixed(2);
+                }
+            }
+        }
+    } catch (ccErr) {
+        console.error("Error al consultar cuenta corriente de cliente:", ccErr);
+    }
+
+    if (fTbody) {
+        fTbody.innerHTML = `<tr><td colspan="7" class="p-6 text-center text-slate-400"><i class="fa-solid fa-spinner fa-spin mr-2"></i> Cargando facturas pendientes de ${cliente}...</td></tr>`;
+    }
+
+    try {
+        const res = await fetch(`/api/facturacion/facturas_pendientes?cliente=${encodeURIComponent(cliente)}`);
+        const json = await res.json();
+        if (json.status === 'success') {
+            cobranzaMultipleFacturasList = json.facturas || [];
+            if (!cobranzaMultipleFacturasList.length) {
+                fTbody.innerHTML = `<tr><td colspan="7" class="p-6 text-center text-slate-400">Este cliente no posee facturas pendientes de cobro.</td></tr>`;
+                calcCobranzaMultipleTotales();
+                return;
+            }
+
+            // Set CUIT if available
+            const cuitEl = document.getElementById('cm-disp-cuit');
+            if (cuitEl) {
+                const foundCuit = cobranzaMultipleFacturasList.find(f => f.cuit)?.cuit || '-';
+                cuitEl.innerText = foundCuit;
+            }
+
+            // Render table
+            let rowsHtml = '';
+            cobranzaMultipleFacturasList.forEach(f => {
+                const fId = f.id_ingreso;
+                const saldo = parseFloat(f.saldo || 0);
+                const total = parseFloat(f.total || 0);
+                const nroFact = f.nro_factura_arca || fId;
+                const tipo = f.tipo_comprobante || 'Factura';
+                const fecha = f.fecha_emision ? (typeof formatDateAR === 'function' ? formatDateAR(f.fecha_emision) : f.fecha_emision) : '-';
+
+                rowsHtml += `
+                    <tr class="hover:bg-slate-50 transition" id="cm-row-${fId}">
+                        <td class="p-2.5 text-center">
+                            <input type="checkbox" class="cm-factura-check w-4 h-4 rounded text-navy focus:ring-navy cursor-pointer"
+                                data-id="${fId}"
+                                data-saldo="${saldo}"
+                                data-total="${total}"
+                                onchange="onCobranzaMultipleRowCheck(this, '${fId}')">
+                        </td>
+                        <td class="p-2.5 font-bold text-slate-800">
+                            ${nroFact}
+                            <div class="text-[10px] text-slate-400 font-normal">${fId}</div>
+                        </td>
+                        <td class="p-2.5 text-slate-600">${fecha}</td>
+                        <td class="p-2.5"><span class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-700">${tipo}</span></td>
+                        <td class="p-2.5 text-right font-medium text-slate-600">${typeof formatARS === 'function' ? formatARS(total) : '$' + total.toFixed(2)}</td>
+                        <td class="p-2.5 text-right font-bold text-rose-600">${typeof formatARS === 'function' ? formatARS(saldo) : '$' + saldo.toFixed(2)}</td>
+                        <td class="p-2.5 text-right">
+                            <input type="number" step="0.01" min="0" max="${saldo}"
+                                id="cm-imp-${fId}"
+                                disabled
+                                data-saldo="${saldo}"
+                                oninput="calcCobranzaMultipleTotales()"
+                                value="0"
+                                class="cm-monto-imp-input w-32 p-1.5 text-right bg-slate-100 border border-slate-200 rounded font-bold text-slate-800 text-xs outline-none focus:ring-1 focus:ring-navy">
+                        </td>
+                    </tr>
+                `;
+            });
+            fTbody.innerHTML = rowsHtml;
+            calcCobranzaMultipleTotales();
+        } else {
+            showToast("Error al cargar facturas: " + (json.message || ''), "error");
+        }
+    } catch (err) {
+        console.error(err);
+        showToast("Error al consultar facturas pendientes.", "error");
+    }
+}
+
+function onCobranzaMultipleRowCheck(chk, fId) {
+    const input = document.getElementById(`cm-imp-${fId}`);
+    if (input) {
+        input.disabled = !chk.checked;
+        if (chk.checked) {
+            input.value = parseFloat(chk.dataset.saldo || 0).toFixed(2);
+            input.classList.remove('bg-slate-100');
+            input.classList.add('bg-white');
+        } else {
+            input.value = '0';
+            input.classList.remove('bg-white');
+            input.classList.add('bg-slate-100');
+        }
+    }
+    calcCobranzaMultipleTotales();
+}
+
+function toggleAllCobranzaMultipleFacturas(checked) {
+    const checks = document.querySelectorAll('.cm-factura-check');
+    checks.forEach(chk => {
+        chk.checked = checked;
+        const fId = chk.dataset.id;
+        const input = document.getElementById(`cm-imp-${fId}`);
+        if (input) {
+            input.disabled = !checked;
+            if (checked) {
+                input.value = parseFloat(chk.dataset.saldo || 0).toFixed(2);
+                input.classList.remove('bg-slate-100');
+                input.classList.add('bg-white');
+            } else {
+                input.value = '0';
+                input.classList.remove('bg-white');
+                input.classList.add('bg-slate-100');
+            }
+        }
+    });
+    calcCobranzaMultipleTotales();
+}
+
+function agregarFilaChequeCobranzaMultiple() {
+    const container = document.getElementById('cm-cheques-container');
+    const emptyMsg = document.getElementById('cm-cheques-empty');
+    if (emptyMsg) emptyMsg.classList.add('hidden');
+
+    const rowId = 'cm-chq-' + Date.now();
+    const today = new Date().toISOString().split('T')[0];
+
+    const rowHtml = `
+        <div id="${rowId}" class="cm-cheque-row bg-white p-3 rounded-xl border border-amber-200/80 shadow-xs grid grid-cols-1 sm:grid-cols-12 gap-2 items-center text-xs">
+            <div class="sm:col-span-3">
+                <label class="font-semibold text-slate-600 text-[10px] block">Tipo</label>
+                <select class="cm-chq-tipo w-full p-1.5 bg-slate-50 border border-slate-200 rounded font-medium text-xs outline-none focus:ring-1 focus:ring-amber-500">
+                    <option value="Cheque Físico">Cheque Físico</option>
+                    <option value="E-Cheq">E-Cheq</option>
+                </select>
+            </div>
+            <div class="sm:col-span-3">
+                <label class="font-semibold text-slate-600 text-[10px] block">Banco Emisor</label>
+                <input type="text" placeholder="Ej: BANCOR, Galicia" class="cm-chq-banco w-full p-1.5 bg-slate-50 border border-slate-200 rounded text-xs outline-none focus:ring-1 focus:ring-amber-500">
+            </div>
+            <div class="sm:col-span-2">
+                <label class="font-semibold text-slate-600 text-[10px] block">N° Cheque</label>
+                <input type="text" placeholder="00012345" class="cm-chq-nro w-full p-1.5 bg-slate-50 border border-slate-200 rounded text-xs outline-none focus:ring-1 focus:ring-amber-500">
+            </div>
+            <div class="sm:col-span-2">
+                <label class="font-semibold text-slate-600 text-[10px] block">Vencimiento</label>
+                <input type="date" value="${today}" class="cm-chq-venc w-full p-1.5 bg-slate-50 border border-slate-200 rounded text-xs outline-none focus:ring-1 focus:ring-amber-500">
+            </div>
+            <div class="sm:col-span-2 flex items-center gap-1.5 pt-3 sm:pt-0">
+                <div class="flex-1">
+                    <label class="font-semibold text-slate-600 text-[10px] block">Monto ($) *</label>
+                    <input type="number" step="0.01" placeholder="0.00" oninput="calcCobranzaMultipleTotales()" class="cm-chq-monto w-full p-1.5 bg-amber-50/50 border border-amber-300 rounded font-bold text-amber-950 text-xs text-right outline-none focus:ring-1 focus:ring-amber-500">
+                </div>
+                <button type="button" onclick="eliminarFilaChequeCobranzaMultiple('${rowId}')" title="Eliminar Cheque" class="mt-3 text-slate-400 hover:text-rose-600 p-1.5 rounded transition cursor-pointer">
+                    <i class="fa-solid fa-trash-can text-sm"></i>
+                </button>
+            </div>
+        </div>
+    `;
+
+    if (container) {
+        container.insertAdjacentHTML('beforeend', rowHtml);
+    }
+    calcCobranzaMultipleTotales();
+}
+
+function eliminarFilaChequeCobranzaMultiple(rowId) {
+    const row = document.getElementById(rowId);
+    if (row) row.remove();
+    const container = document.getElementById('cm-cheques-container');
+    const emptyMsg = document.getElementById('cm-cheques-empty');
+    if (container && !container.children.length && emptyMsg) {
+        emptyMsg.classList.remove('hidden');
+    }
+    calcCobranzaMultipleTotales();
+}
+
+function toggleCobranzaMultipleSaldoFavor(isChecked) {
+    const wrapper = document.getElementById('wrapper-cm-saldo-favor-input');
+    const input = document.getElementById('cm-monto-saldo-favor');
+    if (wrapper) wrapper.classList.toggle('hidden', !isChecked);
+    if (input) {
+        if (isChecked) {
+            let totalImputar = 0.0;
+            document.querySelectorAll('.cm-monto-imp-input').forEach(inp => {
+                if (!inp.disabled) totalImputar += parseFloat(inp.value || 0);
+            });
+            const maxAvail = parseFloat(input.dataset.maxSaldo || 0);
+            const toApply = totalImputar > 0 ? Math.min(maxAvail, totalImputar) : maxAvail;
+            input.value = toApply > 0 ? toApply.toFixed(2) : '';
+        } else {
+            input.value = '';
+        }
+    }
+    calcCobranzaMultipleTotales();
+}
+
+function usarMaximoCobranzaMultipleSaldoFavor() {
+    const input = document.getElementById('cm-monto-saldo-favor');
+    if (input) {
+        let totalImputar = 0.0;
+        document.querySelectorAll('.cm-monto-imp-input').forEach(inp => {
+            if (!inp.disabled) totalImputar += parseFloat(inp.value || 0);
+        });
+        const maxAvail = parseFloat(input.dataset.maxSaldo || 0);
+        const toApply = totalImputar > 0 ? Math.min(maxAvail, totalImputar) : maxAvail;
+        input.value = toApply > 0 ? toApply.toFixed(2) : maxAvail.toFixed(2);
+        calcCobranzaMultipleTotales();
+    }
+}
+
+function calcCobranzaMultipleTotales() {
+    // 1. Total imputado en facturas
+    let totalImputar = 0.0;
+    const impInputs = document.querySelectorAll('.cm-monto-imp-input');
+    impInputs.forEach(inp => {
+        if (!inp.disabled) {
+            const v = parseFloat(inp.value || 0);
+            if (v > 0) totalImputar += v;
+        }
+    });
+
+    // 2. Total medios de pago
+    const transf = parseFloat(document.getElementById('cm-monto-transferencia')?.value || 0);
+    const efectivo = parseFloat(document.getElementById('cm-monto-efectivo')?.value || 0);
+    const retGan = parseFloat(document.getElementById('cm-monto-ret-ganancias')?.value || 0);
+    const retIva = parseFloat(document.getElementById('cm-monto-ret-iva')?.value || 0);
+    const retIibb = parseFloat(document.getElementById('cm-monto-ret-iibb')?.value || 0);
+    const tarjeta = parseFloat(document.getElementById('cm-monto-tarjeta')?.value || 0);
+    const sfVal = parseFloat(document.getElementById('cm-monto-saldo-favor')?.value || 0);
+
+    let totalCheques = 0.0;
+    const chqInputs = document.querySelectorAll('.cm-chq-monto');
+    chqInputs.forEach(ci => {
+        const cv = parseFloat(ci.value || 0);
+        if (cv > 0) totalCheques += cv;
+    });
+
+    const chqBadge = document.getElementById('cm-total-cheques-badge');
+    if (chqBadge) {
+        if (totalCheques > 0) {
+            chqBadge.classList.remove('hidden');
+            chqBadge.innerText = `Subtotal Cheques: ${typeof formatARS === 'function' ? formatARS(totalCheques) : '$' + totalCheques.toFixed(2)}`;
+        } else {
+            chqBadge.classList.add('hidden');
+        }
+    }
+
+    const totalMedios = transf + efectivo + retGan + retIva + retIibb + tarjeta + totalCheques + sfVal;
+    const diff = totalMedios - totalImputar;
+
+    // 3. Update displays
+    const dispImputar = document.getElementById('cm-total-imputar-disp');
+    const sumImputar = document.getElementById('cm-sum-imputar');
+    const sumMedios = document.getElementById('cm-sum-medios');
+    const sumDiff = document.getElementById('cm-sum-diferencia');
+    const lblDiff = document.getElementById('cm-lbl-diferencia');
+    const statusBadge = document.getElementById('cm-status-badge');
+    const submitBtn = document.getElementById('cm-btn-submit');
+
+    const fStr = (n) => typeof formatARS === 'function' ? formatARS(n) : '$' + n.toFixed(2);
+
+    if (dispImputar) dispImputar.innerText = fStr(totalImputar);
+    if (sumImputar) sumImputar.innerText = fStr(totalImputar);
+    if (sumMedios) sumMedios.innerText = fStr(totalMedios);
+
+    if (totalImputar <= 0) {
+        if (lblDiff) lblDiff.innerText = 'Diferencia / Excedente:';
+        if (sumDiff) {
+            sumDiff.innerText = fStr(0);
+            sumDiff.className = 'text-sm font-bold text-slate-500';
+        }
+        if (statusBadge) {
+            statusBadge.className = 'inline-block px-3 py-1 rounded-full text-xs font-bold bg-slate-200 text-slate-600';
+            statusBadge.innerText = 'Seleccioná e imputá al menos una factura';
+        }
+        if (submitBtn) submitBtn.disabled = true;
+    } else if (diff >= -0.10 && diff <= 0.05) {
+        if (lblDiff) lblDiff.innerText = 'Diferencia:';
+        if (sumDiff) {
+            sumDiff.innerText = fStr(0);
+            sumDiff.className = 'text-sm font-bold text-emerald-600';
+        }
+        if (statusBadge) {
+            statusBadge.className = 'inline-block px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-300';
+            statusBadge.innerHTML = '<i class="fa-solid fa-circle-check text-emerald-600 mr-1"></i> Medios de pago conciliados exactamente ($0,00 de diferencia)';
+        }
+        if (submitBtn) submitBtn.disabled = false;
+    } else if (diff > 0.05) {
+        // Excess payment -> automatic Saldo a Favor in C/C!
+        if (lblDiff) lblDiff.innerText = 'Excedente a Favor en C/C:';
+        if (sumDiff) {
+            sumDiff.innerText = '+' + fStr(diff);
+            sumDiff.className = 'text-sm font-black text-emerald-600';
+        }
+        if (statusBadge) {
+            statusBadge.className = 'inline-block px-3 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-900 border border-emerald-400';
+            statusBadge.innerHTML = `<i class="fa-solid fa-circle-plus text-emerald-600 mr-1"></i> El pago cubre el 100% de las facturas seleccionadas y acredita <b>+${fStr(diff)}</b> como Saldo a Favor en la Cuenta Corriente del cliente.`;
+        }
+        if (submitBtn) submitBtn.disabled = false;
+    } else {
+        // Insufficient payment
+        const faltante = Math.abs(diff);
+        if (lblDiff) lblDiff.innerText = 'Faltante a Cubrir:';
+        if (sumDiff) {
+            sumDiff.innerText = '-' + fStr(faltante);
+            sumDiff.className = 'text-sm font-black text-rose-600';
+        }
+        if (statusBadge) {
+            statusBadge.className = 'inline-block px-3 py-1 rounded-full text-xs font-bold bg-rose-50 text-rose-800 border border-rose-300';
+            statusBadge.innerText = `Faltan cubrir ${fStr(faltante)} en los medios de pago para cancelar las facturas seleccionadas.`;
+        }
+        if (submitBtn) submitBtn.disabled = true;
+    }
+}
+
+async function submitCobranzaMultiple() {
+    const cliSelect = document.getElementById('cm-cliente');
+    const cliente = cliSelect ? cliSelect.value.trim() : '';
+    if (!cliente) {
+        showToast("Por favor seleccioná el cliente.", "error");
+        return;
+    }
+
+    // Gather invoices
+    const facturas = [];
+    const impInputs = document.querySelectorAll('.cm-monto-imp-input');
+    impInputs.forEach(inp => {
+        if (!inp.disabled) {
+            const v = parseFloat(inp.value || 0);
+            if (v > 0) {
+                const fId = inp.id.replace('cm-imp-', '');
+                facturas.push({ id_ingreso: fId, monto_imputar: v });
+            }
+        }
+    });
+
+    if (!facturas.length) {
+        showToast("Debés seleccionar e imputar al menos una factura.", "error");
+        return;
+    }
+
+    // Gather cheques
+    const cheques = [];
+    const chqRows = document.querySelectorAll('.cm-cheque-row');
+    chqRows.forEach(row => {
+        const monto = parseFloat(row.querySelector('.cm-chq-monto')?.value || 0);
+        if (monto > 0) {
+            cheques.push({
+                tipo: row.querySelector('.cm-chq-tipo')?.value || 'Cheque Físico',
+                banco: row.querySelector('.cm-chq-banco')?.value?.trim() || '',
+                nro: row.querySelector('.cm-chq-nro')?.value?.trim() || '',
+                fecha_venc: row.querySelector('.cm-chq-venc')?.value || '',
+                monto: monto
+            });
+        }
+    });
+
+    const payload = {
+        cliente: cliente,
+        cuit: document.getElementById('cm-disp-cuit')?.innerText?.trim() || '',
+        fecha_cobro: document.getElementById('cm-fecha-cobro')?.value || new Date().toISOString().split('T')[0],
+        cuenta_destino: document.getElementById('cm-cuenta-destino')?.value || '',
+        monto_transferencia: parseFloat(document.getElementById('cm-monto-transferencia')?.value || 0),
+        monto_efectivo: parseFloat(document.getElementById('cm-monto-efectivo')?.value || 0),
+        monto_ret_ganancias: parseFloat(document.getElementById('cm-monto-ret-ganancias')?.value || 0),
+        monto_ret_iva: parseFloat(document.getElementById('cm-monto-ret-iva')?.value || 0),
+        monto_ret_iibb: parseFloat(document.getElementById('cm-monto-ret-iibb')?.value || 0),
+        monto_tarjeta: parseFloat(document.getElementById('cm-monto-tarjeta')?.value || 0),
+        monto_saldo_favor: parseFloat(document.getElementById('cm-monto-saldo-favor')?.value || 0),
+        cheques: cheques,
+        facturas: facturas,
+        observaciones: document.getElementById('cm-observaciones')?.value?.trim() || ''
+    };
+
+    const submitBtn = document.getElementById('cm-btn-submit');
+    if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i> Procesando...';
+    }
+
+    if (typeof showLoading === 'function') {
+        showLoading("Registrando Cobranza Múltiple", "Imputando pagos en facturas y generando recibo oficial...");
+    }
+
+    try {
+        const res = await fetch('/api/facturacion/cobranza_multiple', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const json = await res.json();
+        if (json.status === 'success') {
+            closeModal('modal-cobranza-multiple');
+
+            // Refresh relevant grids
+            if (typeof loadFacturacionData === 'function') await loadFacturacionData();
+            if (typeof loadIngresosData === 'function') await loadIngresosData();
+            if (typeof loadChequesData === 'function') await loadChequesData();
+            if (typeof loadTesoreriaData === 'function') await loadTesoreriaData();
+            if (typeof loadDashboardData === 'function') await loadDashboardData();
+
+            const recId = json.recibo_id || 'REC-XXXX';
+            const totCobradoStr = typeof formatARS === 'function' ? formatARS(json.total_cobrado) : '$' + json.total_cobrado;
+
+            // Prompt user with success notification & PDF download
+            let successMsg = `Se cancelaron exitosamente <b>${json.facturas_count} factura(s)</b> de <b>${json.cliente}</b> por un total de <b>${totCobradoStr}</b>.<br/><br/>Recibo Oficial: <strong class="text-emerald-700">${recId}</strong>`;
+            if (json.excedente_saldo_favor && json.excedente_saldo_favor > 0.05) {
+                const excStr = typeof formatARS === 'function' ? formatARS(json.excedente_saldo_favor) : '$' + json.excedente_saldo_favor.toFixed(2);
+                successMsg += `<br/><br/><div class="p-2.5 bg-emerald-50 rounded-xl border border-emerald-300 text-emerald-950 font-bold text-xs"><i class="fa-solid fa-circle-check text-emerald-600 mr-1"></i> Se acreditó un Saldo a Favor de <b>${excStr}</b> en la Cuenta Corriente del cliente.</div>`;
+            }
+
+            if (window.Swal) {
+                Swal.fire({
+                    title: '¡Cobranza Múltiple Registrada!',
+                    html: successMsg,
+                    icon: 'success',
+                    showCancelButton: true,
+                    confirmButtonColor: '#002B5C',
+                    cancelButtonColor: '#64748B',
+                    confirmButtonText: '<i class="fa-solid fa-file-pdf mr-1 text-rose-400"></i> Descargar Recibo PDF',
+                    cancelButtonText: 'Cerrar'
+                }).then((result) => {
+                    if (result.isConfirmed) {
+                        window.open(`/api/ingresos/${recId}/recibo_pdf`, '_blank');
+                    }
+                });
+            } else {
+                showToast(`¡Cobranza registrada exitosamente (${recId})!`);
+                window.open(`/api/ingresos/${recId}/recibo_pdf`, '_blank');
+            }
+        } else {
+            showToast("Error al procesar cobranza múltiple: " + (json.message || 'Error desconocido'), "error");
+        }
+    } catch (err) {
+        console.error(err);
+        showToast("Error de conexión al procesar la cobranza múltiple.", "error");
+    } finally {
+        if (typeof hideLoading === 'function') hideLoading();
+        if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = '<i class="fa-solid fa-check text-amber"></i> Registrar Cobranza Múltiple';
+        }
+    }
+}

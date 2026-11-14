@@ -391,7 +391,16 @@ def api_add_adelanto_viaje():
         cuenta_tesoreria = payload.get('cuenta_tesoreria', '')
         comprobante = payload.get('comprobante', '')
         observaciones = payload.get('observaciones', '')
-        res = db.add_adelanto_viaje(v_id, fecha, monto, medio_pago, comprobante, observaciones, cuenta_tesoreria=cuenta_tesoreria)
+        cheque_banco = payload.get('cheque_banco', '')
+        cheque_numero = payload.get('cheque_numero', '')
+        cheque_vencimiento = payload.get('cheque_vencimiento', '')
+        res = db.add_adelanto_viaje(
+            v_id, fecha, monto, medio_pago, comprobante, observaciones,
+            cuenta_tesoreria=cuenta_tesoreria,
+            cheque_banco=cheque_banco,
+            cheque_numero=cheque_numero,
+            cheque_vencimiento=cheque_vencimiento
+        )
         return jsonify(res)
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
@@ -554,8 +563,8 @@ def api_add_unidad():
     try:
         payload = request.json or {}
         patente = str(payload.get('patente') or '').strip().upper().replace(' ', '')
-        if patente and len(patente) > 7:
-            return jsonify({"status": "error", "message": "La patente no puede tener más de 7 caracteres (máximo admitido en Argentina)."}), 400
+        if patente and len(patente) > 20:
+            return jsonify({"status": "error", "message": "La patente o identificación no puede superar los 20 caracteres."}), 400
         payload['patente'] = patente
         res = db.add_unidad(payload)
         return jsonify(res)
@@ -570,8 +579,8 @@ def api_update_unidad():
         if not u_id:
             return jsonify({"status": "error", "message": "ID de unidad requerido"}), 400
         patente = str(payload.get('patente') or '').strip().upper().replace(' ', '')
-        if patente and len(patente) > 7:
-            return jsonify({"status": "error", "message": "La patente no puede tener más de 7 caracteres (máximo admitido en Argentina)."}), 400
+        if patente and len(patente) > 20:
+            return jsonify({"status": "error", "message": "La patente o identificación no puede superar los 20 caracteres."}), 400
         payload['patente'] = patente
         res = db.update_unidad(u_id, payload)
         return jsonify(res)
@@ -2040,6 +2049,36 @@ def api_factura_email_preview(target_id):
             "message": body_text
         })
     except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route('/api/facturacion/clientes_pendientes', methods=['GET'])
+def api_facturacion_clientes_pendientes():
+    try:
+        clientes = db.get_clientes_con_facturas_pendientes()
+        return jsonify({"status": "success", "clientes": clientes})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route('/api/facturacion/facturas_pendientes', methods=['GET'])
+def api_facturacion_facturas_pendientes():
+    try:
+        cliente = request.args.get('cliente', '').strip()
+        if not cliente:
+            return jsonify({"status": "error", "message": "Parámetro 'cliente' requerido."}), 400
+        facturas = db.get_facturas_pendientes_cliente(cliente)
+        return jsonify({"status": "success", "facturas": facturas})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route('/api/facturacion/cobranza_multiple', methods=['POST'])
+def api_facturacion_cobranza_multiple():
+    try:
+        payload = request.json or {}
+        res = db.registrar_cobranza_multiple(payload)
+        return jsonify(res)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
         return jsonify({"status": "error", "message": str(e)}), 500
 
 if __name__ == '__main__':

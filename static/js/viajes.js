@@ -553,15 +553,48 @@ function marcarViajeFinalizado(vid) {
 
 
 // VIAJE ADELANTOS & ADICIONALES JS HANDLERS
+function onMedioPagoAdelantoChange() {
+    const medio = (document.getElementById('va-medio-pago')?.value || '').toLowerCase();
+    const isCheque = medio.includes('cheque') || medio.includes('e-cheq') || medio.includes('echeq');
+    
+    const grpCuenta = document.getElementById('va-group-cuenta-destino');
+    const grpChequeDest = document.getElementById('va-group-cheque-destino');
+    const fieldsCheque = document.getElementById('va-fields-cheque');
+    const grpComp = document.getElementById('va-group-comprobante');
+    const vaCuenta = document.getElementById('va-cuenta-tesoreria');
+    const nroCheque = document.getElementById('va-cheque-numero');
+
+    if (isCheque) {
+        if (grpCuenta) grpCuenta.classList.add('hidden');
+        if (grpChequeDest) grpChequeDest.classList.remove('hidden');
+        if (fieldsCheque) fieldsCheque.classList.remove('hidden');
+        if (grpComp) grpComp.classList.add('hidden');
+        if (vaCuenta) vaCuenta.removeAttribute('required');
+        if (nroCheque) nroCheque.setAttribute('required', 'true');
+    } else {
+        if (grpCuenta) grpCuenta.classList.remove('hidden');
+        if (grpChequeDest) grpChequeDest.classList.add('hidden');
+        if (fieldsCheque) fieldsCheque.classList.add('hidden');
+        if (grpComp) grpComp.classList.remove('hidden');
+        if (vaCuenta) vaCuenta.setAttribute('required', 'true');
+        if (nroCheque) nroCheque.removeAttribute('required');
+    }
+}
+
 function openModalAdelantoViaje(vid, cliente = '') {
     document.getElementById('va-viaje-id').value = vid;
     if (document.getElementById('va-disp-viaje')) {
         document.getElementById('va-disp-viaje').innerText = `${vid} ${cliente ? '(' + cliente + ')' : ''}`;
     }
+    const today = new Date().toISOString().split('T')[0];
     document.getElementById('va-monto').value = '';
-    document.getElementById('va-fecha').value = new Date().toISOString().split('T')[0];
+    document.getElementById('va-fecha').value = today;
     document.getElementById('va-comprobante').value = '';
     document.getElementById('va-observaciones').value = '';
+    if (document.getElementById('va-cheque-banco')) document.getElementById('va-cheque-banco').value = '';
+    if (document.getElementById('va-cheque-numero')) document.getElementById('va-cheque-numero').value = '';
+    if (document.getElementById('va-cheque-vencimiento')) document.getElementById('va-cheque-vencimiento').value = today;
+    if (document.getElementById('va-medio-pago')) document.getElementById('va-medio-pago').value = 'Transferencia Bancaria';
     
     if (typeof currentTesoreriaAccounts !== 'undefined' && currentTesoreriaAccounts.length > 0) {
         const liquidAccs = currentTesoreriaAccounts.filter(a => a.tipo !== 'Cheques');
@@ -570,21 +603,54 @@ function openModalAdelantoViaje(vid, cliente = '') {
         if (vaCuentaSelect) vaCuentaSelect.innerHTML = liquidOptions;
     }
 
+    onMedioPagoAdelantoChange();
     openModal('modal-adelanto');
 }
 
 async function submitAdelantoViaje(e) {
     e.preventDefault();
     const vid = document.getElementById('va-viaje-id').value;
-    const vaCuenta = document.getElementById('va-cuenta-tesoreria');
+    const medioPago = document.getElementById('va-medio-pago').value;
+    const isCheque = medioPago.toLowerCase().includes('cheque') || medioPago.toLowerCase().includes('e-cheq') || medioPago.toLowerCase().includes('echeq');
+    
+    let vaCuenta = '';
+    let comprobanteVal = '';
+    let chequeBanco = '';
+    let chequeNro = '';
+    let chequeVenc = '';
+
+    if (isCheque) {
+        vaCuenta = 'Cartera de Cheques';
+        chequeBanco = (document.getElementById('va-cheque-banco')?.value || '').trim();
+        chequeNro = (document.getElementById('va-cheque-numero')?.value || '').trim();
+        chequeVenc = document.getElementById('va-cheque-vencimiento')?.value || document.getElementById('va-fecha').value;
+        comprobanteVal = chequeNro ? `CHQ N° ${chequeNro}` : (document.getElementById('va-comprobante')?.value || '');
+        if (!chequeNro) {
+            showToast("Por favor ingresá el N° de Cheque.", "warning");
+            document.getElementById('va-cheque-numero')?.focus();
+            return;
+        }
+    } else {
+        const vaCuentaSelect = document.getElementById('va-cuenta-tesoreria');
+        vaCuenta = vaCuentaSelect ? vaCuentaSelect.value : '';
+        comprobanteVal = document.getElementById('va-comprobante')?.value || '';
+        if (!vaCuenta) {
+            showToast("Por favor seleccioná la cuenta de destino.", "warning");
+            return;
+        }
+    }
+
     const payload = {
         viaje_id: vid,
         monto: document.getElementById('va-monto').value,
         fecha: document.getElementById('va-fecha').value,
-        medio_pago: document.getElementById('va-medio-pago').value,
-        cuenta_tesoreria: vaCuenta ? vaCuenta.value : '',
-        comprobante: document.getElementById('va-comprobante').value,
-        observaciones: document.getElementById('va-observaciones').value
+        medio_pago: medioPago,
+        cuenta_tesoreria: vaCuenta,
+        comprobante: comprobanteVal,
+        observaciones: document.getElementById('va-observaciones').value,
+        cheque_banco: chequeBanco,
+        cheque_numero: chequeNro,
+        cheque_vencimiento: chequeVenc
     };
 
     try {
