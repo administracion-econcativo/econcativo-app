@@ -2774,14 +2774,19 @@ class DataManager:
 
         # Build readable combined payment string
         medios_list = []
-        cuenta_dest = str(cdata.get('cuenta_destino') or '').strip()
+        cuenta_banco = str(cdata.get('cuenta_banco') or cdata.get('cuenta_destino') or '').strip()
+        cuenta_efectivo = str(cdata.get('cuenta_efectivo') or '').strip()
+        cuenta_tarjeta = str(cdata.get('cuenta_tarjeta') or '').strip()
+
         if m_transf > 0:
-            cta_txt = f" - {cuenta_dest}" if cuenta_dest and 'banco' in cuenta_dest.lower() else ""
-            medios_list.append(f"Transferencia: ${m_transf:,.2f}{cta_txt}")
+            cta_banco_txt = f" - {cuenta_banco}" if cuenta_banco else ""
+            medios_list.append(f"Transferencia: ${m_transf:,.2f}{cta_banco_txt}")
         if m_efectivo > 0:
-            medios_list.append(f"Efectivo: ${m_efectivo:,.2f}")
+            cta_ef_txt = f" - {cuenta_efectivo}" if cuenta_efectivo else ""
+            medios_list.append(f"Efectivo: ${m_efectivo:,.2f}{cta_ef_txt}")
         if m_tarjeta > 0:
-            medios_list.append(f"Tarjeta / Billetera: ${m_tarjeta:,.2f}")
+            cta_tarj_txt = f" - {cuenta_tarjeta}" if cuenta_tarjeta else ""
+            medios_list.append(f"Tarjeta / Billetera: ${m_tarjeta:,.2f}{cta_tarj_txt}")
         if m_ret_ganancias > 0:
             medios_list.append(f"Retención Ganancias: ${m_ret_ganancias:,.2f}")
         if m_ret_iva > 0:
@@ -2800,8 +2805,6 @@ class DataManager:
             medios_list.append(f"Excedente acreditado en C/C: ${excedente_saldo_favor:,.2f}")
 
         desglose_medios_str = " | ".join(medios_list)
-        if cuenta_dest and not any(cuenta_dest.lower() in m.lower() for m in medios_list):
-            desglose_medios_str = f"{desglose_medios_str} - {cuenta_dest}"
 
         # Generate unique Recibo ID
         if self.supabase_service and self.supabase_service.is_connected():
@@ -10156,9 +10159,10 @@ class DataManager:
         if tipo == 'Cheques' or 'cheque' in nomb_l:
             return 0.0
 
-        def matches_acc(label_str, part_str):
+        def matches_acc(label_str, part_str, target_acc=''):
             lbl_l = label_str.lower()
             part_l = part_str.lower()
+            target_l = target_acc.lower().strip()
             
             # Protección de Tesorería: Retenciones impositivas y saldos a favor NUNCA suman a cuentas bancarias o cajas
             if any(k in lbl_l or k in part_l for k in ['retenci', 'retencion', 'retención', 'saldo a favor', 'credito fiscal', 'descuento', 'ganancias', 'iibb', 'suss']):
@@ -10168,17 +10172,58 @@ class DataManager:
             if any(k in lbl_l or k in part_l for k in ['cheque', 'echeq', 'e-cheq', 'chq']):
                 return False
 
+            # Si se especificó una cuenta destino explícita para este medio
+            if target_l:
+                # 1. ¿Coincide con ESTA cuenta?
+                matches_this = (target_l == nomb_l) or (target_l == cid.lower()) or (nomb_l in target_l) or (target_l in nomb_l)
+                if matches_this:
+                    return True
+                # 2. ¿Coincide con OTRA cuenta conocida de tesorería?
+                for other_acc in accounts:
+                    if other_acc['id'] != cid:
+                        oth_n = other_acc['nombre'].lower()
+                        oth_id = other_acc['id'].lower()
+                        if (target_l == oth_n) or (target_l == oth_id) or (oth_n in target_l) or (target_l in oth_n):
+                            return False
+
             if tipo == 'Efectivo':
                 # No debe ser transferencia bancaria ni banco
                 if any(w in part_l for w in ['transfer', 'banco', 'bancari', 'deposito']):
                     return False
-                return ('efectivo' in lbl_l or 'caja' in lbl_l or 'efectivo' in part_l or 'caja' in part_l or nomb_l in part_l)
+                if not ('efectivo' in lbl_l or 'caja' in lbl_l or 'efectivo' in part_l or 'caja' in part_l):
+                    return False
+
+                # Si no había target_acc o no coincidió explícitamente:
+                # Verificar si se menciona explícitamente a otra caja de efectivo en el texto
+                other_cash_mentioned = False
+                for other_acc in accounts:
+                    if other_acc['id'] != cid and other_acc['tipo'] == 'Efectivo':
+                        other_nomb_l = other_acc['nombre'].lower()
+                        other_clean = other_nomb_l.replace('caja', '').replace('efectivo', '').strip()
+                        if (other_nomb_l in part_l) or (other_acc['id'].lower() in part_l) or (len(other_clean) > 2 and other_clean in part_l):
+                            other_cash_mentioned = True
+                            break
+
+                if other_cash_mentioned:
+                    return False
+
+                nomb_clean = nomb_l.replace('caja', '').replace('efectivo', '').strip()
+                if len(nomb_clean) > 2:
+                    return nomb_clean in part_l or cid.lower() in part_l
+
+                # Si es la caja principal o de nombre genérico EFECTIVO
+                is_primary_cash = (cid == 'CTA-000009' or nomb_l == 'efectivo')
+                return is_primary_cash
 
             elif tipo == 'Billetera':
-                return any(w in lbl_l or w in part_l for w in ['mercado', 'billetera', 'ualá', 'uala', 'personal']) or (nomb_l in part_l or cid.lower() in part_l)
+                if not any(w in lbl_l or w in part_l for w in ['mercado', 'billetera', 'ualá', 'uala', 'personal', 'tarjeta']):
+                    return False
+                return True
 
             elif tipo == 'Banco':
                 if 'efectivo' in lbl_l or 'caja' in lbl_l:
+                    return False
+                if not any(w in part_l or w in lbl_l for w in ['transfer', 'banco', 'bancari', 'deposito']):
                     return False
 
                 # Si nombra explícitamente a este banco o su CBU o ID
@@ -10198,7 +10243,7 @@ class DataManager:
                             break
 
                 is_primary = (cid == 'CTA-002' or 'galicia' in nomb_l or cid == 'CTA-000006')
-                if not other_bank_mentioned and ('banco' in part_l or 'transfer' in part_l or 'deposito' in part_l):
+                if not other_bank_mentioned:
                     return is_primary
 
             return False
@@ -10207,21 +10252,46 @@ class DataManager:
             parts = [p.strip() for p in med_orig.split('|')]
             matched_amount = 0.0
             for part in parts:
-                match = re.search(r'^(.*?):\s*\$?([\d\.,]+)', part)
+                match = re.search(r'^(.*?):\s*\$?([\d\.,]+)(?:\s*-\s*(.*))?$', part)
                 if match:
                     label = match.group(1).strip()
                     amt_str = match.group(2).strip()
+                    target_acc = (match.group(3) or '').strip()
                     item_amt = self._to_float(amt_str)
-                    if matches_acc(label, part):
+                    if matches_acc(label, part, target_acc):
                         matched_amount += item_amt
                 else:
-                    if matches_acc(part, part):
+                    target_acc = ''
+                    if ' - ' in part:
+                        p_parts = part.split(' - ')
+                        label = p_parts[0].strip()
+                        target_acc = p_parts[1].strip()
+                    else:
+                        label = part
+                    if matches_acc(label, part, target_acc):
                         matched_amount += m_total
             return matched_amount
         else:
-            if matches_acc(med_orig, med_orig):
-                return m_total
-            return 0.0
+            match = re.search(r'^(.*?):\s*\$?([\d\.,]+)(?:\s*-\s*(.*))?$', med_orig)
+            if match:
+                label = match.group(1).strip()
+                target_acc = (match.group(3) or '').strip()
+                if matches_acc(label, med_orig, target_acc):
+                    return m_total
+                return 0.0
+            else:
+                target_acc = ''
+                if ' - ' in med_orig:
+                    p_parts = med_orig.split(' - ')
+                    label = p_parts[0].strip()
+                    target_acc = p_parts[1].strip()
+                else:
+                    label = med_orig
+                if matches_acc(label, med_orig, target_acc):
+                    return m_total
+                return 0.0
+
+    
 
     def validate_treasury_disponibilidad(self, cuenta_tesoreria, monto_desembolso):
         """Validates if a treasury/cash account has sufficient available funds for an outflow operation.

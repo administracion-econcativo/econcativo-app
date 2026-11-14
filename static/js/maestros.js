@@ -144,6 +144,36 @@ function populateTreasurySelectsFromMaster(accounts) {
         }
     });
 
+    // Dedicated account selects by type
+    const pureBankAccs = accounts.filter(a => a.tipo === 'Banco');
+    const pureCashAccs = accounts.filter(a => a.tipo === 'Efectivo');
+    const pureWalletAccs = accounts.filter(a => a.tipo === 'Billetera');
+
+    const pureBankOpts = (pureBankAccs.length ? pureBankAccs : liquidAccs).map(a => `<option value="${a.nombre}">${a.nombre} (${a.tipo})</option>`).join('');
+    const pureCashOpts = (pureCashAccs.length ? pureCashAccs : liquidAccs).map(a => `<option value="${a.nombre}">${a.nombre} (${a.tipo})</option>`).join('');
+    const pureWalletOpts = (pureWalletAccs.length ? pureWalletAccs : liquidAccs).map(a => `<option value="${a.nombre}">${a.nombre} (${a.tipo})</option>`).join('');
+
+    const elBanco = document.getElementById('cm-cuenta-banco');
+    if (elBanco) {
+        const curr = elBanco.value;
+        elBanco.innerHTML = pureBankOpts;
+        if (curr && Array.from(elBanco.options).some(o => o.value === curr)) elBanco.value = curr;
+    }
+
+    const elEfectivo = document.getElementById('cm-cuenta-efectivo');
+    if (elEfectivo) {
+        const curr = elEfectivo.value;
+        elEfectivo.innerHTML = pureCashOpts;
+        if (curr && Array.from(elEfectivo.options).some(o => o.value === curr)) elEfectivo.value = curr;
+    }
+
+    const elTarjeta = document.getElementById('cm-cuenta-tarjeta');
+    if (elTarjeta) {
+        const curr = elTarjeta.value;
+        elTarjeta.innerHTML = pureWalletOpts;
+        if (curr && Array.from(elTarjeta.options).some(o => o.value === curr)) elTarjeta.value = curr;
+    }
+
     // chqp-banco (Banco Emisor para Cheques Propios)
     const chqpBanco = document.getElementById('chqp-banco');
     if (chqpBanco) {
